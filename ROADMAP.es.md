@@ -4,11 +4,6 @@ Este documento detalla las funcionalidades faltantes y mejoras planificadas para
 
 ## 🚀 Alta Prioridad (Alto Impacto / Complejidad Baja-Media)
 
-### 1. Utilidad de Exportación JSON (`xml.ToJSON`)
-**Impacto: Alto** | **Complejidad: Baja**
-
-Muchos usuarios parsean XML únicamente para convertirlo a JSON para otros servicios.
-- **Necesidad**: Un método helper `xml.ToJSON(r io.Reader) ([]byte, error)` que canalice el parseo y el marshalling Map-a-JSON en un solo paso optimizado.
 
 ### 2. Mejora en Reporte de Errores
 **Impacto: Alto** | **Complejidad: Baja**

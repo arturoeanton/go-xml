@@ -302,10 +302,10 @@ func TestBinding(t *testing.T) {
 		"age":  30,
 	}
 
-	// ToJSON
-	jsonStr, _ := ToJSON(data)
+	// MapToJSON
+	jsonStr, _ := MapToJSON(data)
 	if len(jsonStr) == 0 {
-		t.Error("ToJSON returned empty")
+		t.Error("MapToJSON returned empty")
 	}
 
 	// MapToStruct
@@ -321,4 +321,25 @@ func TestBinding(t *testing.T) {
 	if u.Name != "Alice" || u.Age != 30 {
 		t.Errorf("MapToStruct mapping error: %+v", u)
 	}
+}
+
+func TestToJSON_Reader(t *testing.T) {
+	xmlData := `<user id="1"><name>Alice</name></user>`
+	r := strings.NewReader(xmlData)
+
+	jsonBytes, err := ToJSON(r)
+	if err != nil {
+		t.Fatalf("ToJSON(Reader) failed: %v", err)
+	}
+
+	jsonStr := string(jsonBytes)
+	// Simple check: ensure it contains keys. JSON order is random unless sorted or small.
+	if !strings.Contains(jsonStr, "user") || !strings.Contains(jsonStr, "Alice") {
+		t.Errorf("ToJSON(Reader) output unexpected: %s", jsonStr)
+	}
+
+	if jsonStr != `{"user":{"id":"1","name":"Alice"}}` {
+		t.Errorf("ToJSON(Reader) output unexpected: %s", jsonStr)
+	}
+
 }

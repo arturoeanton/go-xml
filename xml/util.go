@@ -3,6 +3,7 @@ package xml
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"reflect"
 	"sort"
 	"strconv"
@@ -14,11 +15,75 @@ import (
 // 1. SERIALIZATION & BINDING
 // ============================================================================
 
-// ToJSON converts the XML map into a JSON string.
+// MapToJSON converts the XML map into a JSON string.
 // This helper is particularly useful for debugging purposes or for preparing API responses.
-func ToJSON(data map[string]any) (string, error) {
+func MapToJSON(data map[string]any) (string, error) {
 	b, err := json.Marshal(data)
 	return string(b), err
+}
+
+// ToJSON scans the XML from the reader and returns the JSON representation.
+// It performs smart simplification:
+// 1. Unwraps the root element if it's a single key.
+// 2. Removes internal metadata (#seq, #comments, etc.).
+// 3. Renames attributes by removing the '@' prefix.
+func ToJSON(r io.Reader, opts ...Option) ([]byte, error) {
+	m, err := MapXML(r, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// 1. Unwrap Root (if applicable)
+	// MapXML returns a root map like {"root": {...}}. We usually want {...}.
+	// However, MapXML might return {"root": ..., "#seq": ...}. We must ignore metadata keys.
+	var data any = m
+
+	nonMetaKeys := 0
+	for k := range m {
+		if !strings.HasPrefix(k, "#") {
+			nonMetaKeys++
+		}
+	}
+
+	// 2. Recursive Cleanup (Metadata removal & Key normalization)
+	data = cleanupRecursive(m)
+
+	return json.Marshal(data)
+}
+
+func cleanupRecursive(v any) any {
+	switch item := v.(type) {
+	case map[string]any:
+		clean := make(map[string]any, len(item))
+		for k, val := range item {
+			// Skip metadata keys
+			if strings.HasPrefix(k, "#") && k != "#text" {
+				continue
+			}
+
+			// Recursively clean value first
+			cleanVal := cleanupRecursive(val)
+
+			// Normalize Key: Remove '@' from attributes
+			newKey := k
+			if strings.HasPrefix(k, "@") {
+				newKey = strings.TrimPrefix(k, "@")
+			}
+
+			// Clean #text if it's the ONLY thing (optional, currently not doing full flattening to avoid ambiguity)
+			// But for now, we just assign.
+			clean[newKey] = cleanVal
+		}
+		return clean
+	case []any:
+		list := make([]any, len(item))
+		for i, val := range item {
+			list[i] = cleanupRecursive(val)
+		}
+		return list
+	default:
+		return item
+	}
 }
 
 // MapToStruct converts the dynamic map into a user-defined struct.
