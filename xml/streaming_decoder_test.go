@@ -44,6 +44,7 @@ func TestStreamingDecoder_Context(t *testing.T) {
 
 	// Cancelamos después de un tiempo muy corto
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel() // Aseguramos que el contexto se cancela al finalizar
 
 	count := 0
 	for range stream.IterWithContext(ctx) {

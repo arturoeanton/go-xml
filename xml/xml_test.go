@@ -368,6 +368,94 @@ func TestMapXML_SoupMode_Heavy(t *testing.T) {
 	t.Log("SUCCESS! The parser survived the Heavy Test and validated content correctly.")
 }
 
+// TestMapXML_Charsets verifies the parser's ability to handle legacy single-byte encodings
+// (ISO-8859-1 and Windows-1252) when the EnableLegacyCharsets option is active.
+//
+// Methodology:
+// Since Go source files are UTF-8 by default, we cannot simply write characters like 'ñ' or '€'
+// directly in the input string, as Go would encode them as multi-byte UTF-8 sequences.
+// Instead, we use hexadecimal escape sequences (e.g., \xF1) to force specific raw bytes
+// that represent these characters in their respective legacy encodings.
+//
+// Scenarios Covered:
+//  1. ISO-8859-1: Validates standard Latin-1 characters (e.g., 'ñ', 'ó') map correctly to UTF-8.
+//  2. Windows-1252: Validates characters that exist in CP1252 but not in ISO-8859-1
+//     (e.g., the Euro symbol '€' and smart quotes).
+//  3. Real-world Compatibility: Tests the common "lying header" scenario found in banking
+//     and government systems, where the XML declares "encoding='ISO-8859-1'" but actually
+//     contains Windows-1252 bytes. The parser should gracefully handle this by using the
+//     Windows-1252 table as a superset.
+func TestMapXML_Charsets(t *testing.T) {
+	tests := []struct {
+		name     string
+		rawXML   string // Usamos string con escapes hex para forzar bytes no-UTF8
+		query    string
+		expected string
+	}{
+		{
+			name: "ISO-8859-1: Spanish Accents & Ñ",
+			// Header declara ISO-8859-1
+			// <data>Canción - Año</data>
+			// \xF3 = ó, \xF1 = ñ (en Latin1)
+			rawXML: "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>" +
+				"<root><data>Canci\xF3n - A\xF1o</data></root>",
+			query:    "root/data",
+			expected: "Canción - Año", // Resultado esperado en UTF-8 nativo de Go
+		},
+		{
+			name: "Windows-1252: Euro Symbol",
+			// Header declara Windows-1252
+			// <price>100 €</price>
+			// \x80 es el byte para € en CP1252 (en ISO puro es un control char)
+			rawXML: "<?xml version=\"1.0\" encoding=\"Windows-1252\"?>" +
+				"<root><price>100 \x80</price></root>",
+			query:    "root/price",
+			expected: "100 €",
+		},
+		{
+			name: "Windows-1252: Smart Quotes (Fancy Quotes)",
+			// <quote>“Hello”</quote>
+			// \x93 (Left double quote) y \x94 (Right double quote)
+			rawXML: "<?xml version=\"1.0\" encoding=\"cp1252\"?>" +
+				"<root><quote>\x93Hello\x94</quote></root>",
+			query:    "root/quote",
+			expected: "“Hello”",
+		},
+		{
+			name: "Legacy Mix: Header says ISO but uses Windows chars",
+			// Este caso es CRÍTICO para bancos. Declaran ISO pero mandan Windows-1252.
+			// Tu implementación debe ser capaz de usar la tabla Windows para ambos.
+			// Byte \x9C = œ (ligadura oe), no existe en ISO-8859-1, solo en Win-1252.
+			rawXML: "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>" +
+				"<root><word>C\x9Cur</word></root>", // Cœur (Corazón en francés)
+			query:    "root/word",
+			expected: "Cœur",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// 1. Parseamos usando la opción EnableLegacyCharsets
+			r := strings.NewReader(tt.rawXML)
+			m, err := MapXML(r, EnableLegacyCharsets())
+			if err != nil {
+				t.Fatalf("MapXML unexpected error: %v", err)
+			}
+
+			// 2. Consultamos el valor
+			got, err := Query(m, tt.query)
+			if err != nil {
+				t.Fatalf("Query failed: %v", err)
+			}
+
+			// 3. Verificamos que se haya convertido a UTF-8 correctamente
+			if got != tt.expected {
+				t.Errorf("Charset conversion failed.\nGot (UTF-8 bytes): % +q\nWant: %s", got, tt.expected)
+			}
+		})
+	}
+}
+
 // ============================================================================
 // 6. BENCHMARKS
 // ============================================================================

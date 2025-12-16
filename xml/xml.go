@@ -37,16 +37,24 @@ type config struct {
 	valueHooks     map[string]func(string) any // Transformation Hooks
 
 	// Flags
-	isLenient   bool // Tolerant mode for dirty HTML/XML
-	inferTypes  bool // Automatic type inference (int, bool, float)
-	prettyPrint bool // Indentation for the encoder
-	isSoupMode  bool // "Soup Mode" (Dirty HTML - Normalization & Sanitization)
+	isLenient        bool // Tolerant mode for dirty HTML/XML
+	inferTypes       bool // Automatic type inference (int, bool, float)
+	prettyPrint      bool // Indentation for the encoder
+	isSoupMode       bool // "Soup Mode" (Dirty HTML - Normalization & Sanitization)
+	useCharsetReader bool // Use charset reader for ISO-8859-1 and Windows-1252
 
 	htmlAutoClose []string // List of HTML Void Elements
 }
 
 // Option defines a function to modify the parser configuration.
 type Option func(*config)
+
+// defaultConfig devuelve la configuración por defecto.
+func defaultConfig() *config {
+	return &config{
+		useCharsetReader: false,
+	}
+}
 
 // ForceArray returns an Option that forces specific tags to be parsed as arrays ([]any).
 // This prevents the common XML-to-JSON ambiguity where single items are parsed as objects.
@@ -55,6 +63,13 @@ func ForceArray(keys ...string) Option {
 		for _, k := range keys {
 			c.forceArrayKeys[k] = true
 		}
+	}
+}
+
+// EnableLegacyCharsets habilita el soporte para ISO-8859-1 y Windows-1252.
+func EnableLegacyCharsets() Option {
+	return func(c *config) {
+		c.useCharsetReader = true
 	}
 }
 
@@ -130,25 +145,30 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 		decoder.Entity = xml.HTMLEntity
 	}
 
+	// === NEW: CHARSET READER ===
+	if cfg.useCharsetReader {
+		decoder.CharsetReader = charsetReader
+	}
+
 	root := make(map[string]any)
 	stack := []*node{{tagName: "", data: root}}
 
 	for {
 		token, err := decoder.Token()
-		if err == io.EOF {
-			break
-		}
-		// === CORRECCIÓN ANTI-BLOQUEO ===
 		if err != nil {
-			// Si hay un error de sintaxis (incluso en SoupMode),
-			// NO hagas 'continue', porque el decoder se queda pegado en el mismo error.
-			return nil, fmt.Errorf("xml parsing error: %v", err)
-		}
-		// In Soup Mode, we attempt to recover from mild errors (Best Effort).
-		if err != nil && cfg.isSoupMode && err != io.EOF {
-			continue // Ignore error and continue parsing
-		} else if err != nil {
-			return nil, fmt.Errorf("parsing error: %v", err)
+			// 1. Primero manejamos EOF (Fin de archivo), siempre debemos salir.
+			if err == io.EOF {
+				break // O return nil, dependiendo de tu lógica
+			}
+
+			// 2. Aquí aplicamos el parche para Soup Mode.
+			// Si hay error (que no es EOF) y estamos en Soup Mode, lo ignoramos.
+			if cfg.isSoupMode {
+				continue // Ignoramos el error y buscamos el siguiente token
+			}
+
+			// 3. Si NO es Soup Mode, el error es fatal (comportamiento default).
+			return nil, err
 		}
 
 		switch se := token.(type) {

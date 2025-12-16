@@ -16,6 +16,7 @@
 *   **Namespaces Helpers**: Register aliases to work with short keys instead of full URLs.
 *   **Value Hooks**: Define custom logic to transform strings into native Go types (Dates, Enums, etc.) during parsing.
 *   **Built-in CLI**: Includes a terminal tool for quick XML querying.
+*   **Legacy Charsets**: Built-in support for ISO-8859-1 and Windows-1252 parsing via `EnableLegacyCharsets()`.
 
 ## 📦 Installation
 
@@ -156,6 +157,15 @@ errors := xml.Validate(data, rules)
 if len(errors) > 0 {
     fmt.Println("Validation failed:", errors)
 }
+```
+
+### 7. Legacy Charsets (ISO-8859-1 / Windows-1252)
+The parser automatically handles UTF-8. For legacy systems (banking, government) sending ISO-8859-1 or Windows-1252, use `EnableLegacyCharsets()`.
+
+```go
+// Header says encoding="ISO-8859-1"
+m, err := xml.MapXML(r, xml.EnableLegacyCharsets())
+// The parser automatically uses the correct charset reader
 ```
 
 ## 🛠 CLI Tool

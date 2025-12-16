@@ -203,3 +203,31 @@ func ExampleText() {
 	// Output:
 	// The stock market reached record highs today.Details at 11.
 }
+
+func ExampleEnableLegacyCharsets() {
+	// IMPORTANTE: Construimos el XML simulando que viene de un archivo antiguo.
+	// Usamos escapes hexadecimales para forzar bytes ISO-8859-1 reales:
+	// \xF3 es 'ó' en ISO-8859-1 (en UTF-8 sería \xC3\xB3)
+	// \xF1 es 'ñ' en ISO-8859-1 (en UTF-8 sería \xC3\xB1)
+	xmlData := "<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>\n" +
+		"<transacci\xF3n>\n" +
+		"    <descripci\xF3n>Pago de expensas a\xF1o 2023</descripci\xF3n>\n" +
+		"    <moneda>ARS</moneda>\n" +
+		"</transacci\xF3n>"
+
+	// El parser detectará el encoding en el header y usará nuestro CharsetReader
+	// para transformar esos bytes \xF3 y \xF1 a UTF-8 válido internamente.
+	m, err := MapXML(strings.NewReader(xmlData), EnableLegacyCharsets())
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	// Buscamos usando nombres de tags normales (en UTF-8/Go nativo)
+	// Nótese que aquí SÍ escribimos 'ó' normal, porque el mapa 'm' ya está en UTF-8.
+	desc, _ := Query(m, "transacción/descripción")
+	fmt.Println(desc)
+
+	// Output:
+	// Pago de expensas año 2023
+}
