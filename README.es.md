@@ -16,6 +16,7 @@
 *   **Namespaces Helpers**: Registra alias para trabajar con claves cortas en lugar de URLs completas.
 *   **Hooks de Valor**: Define lógica personalizada para transformar strings en tipos nativos de Go (Fechas, Enums, etc.) durante el parseo.
 *   **CLI Integrado**: Incluye una herramienta de terminal para consultas rápidas de XML.
+*   **Charsets Legados**: Soporte nativo para ISO-8859-1 y Windows-1252 mediante `EnableLegacyCharsets()`.
 
 ## 📦 Instalación
 
@@ -156,6 +157,15 @@ errors := xml.Validate(data, rules)
 if len(errors) > 0 {
     fmt.Println("Validación fallida:", errors)
 }
+```
+
+### 7. Soporte de Charsets Legados (ISO-8859-1 / Windows-1252)
+El parser maneja UTF-8 automáticamente. Para sistemas legados (bancos, gobierno) que envían ISO-8859-1 o Windows-1252, usa `EnableLegacyCharsets()`.
+
+```go
+// El header dice encoding="ISO-8859-1"
+m, err := xml.MapXML(r, xml.EnableLegacyCharsets())
+// El parser inyecta automáticamente el lector de charsets correcto
 ```
 
 ## 🛠 Herramienta CLI

@@ -22,9 +22,24 @@ type Stream[T any] struct {
 // NewStream initializes a new streaming iterator for a specific XML tag.
 // r: The input reader (file, http body, etc).
 // tagName: The local name of the XML element to iterate over (e.g., "Item", "Entry").
-func NewStream[T any](r io.Reader, tagName string) *Stream[T] {
+// opts: Variadic options (e.g., EnableLegacyCharsets)
+func NewStream[T any](r io.Reader, tagName string, opts ...Option) *Stream[T] {
+	// 1. Procesar configuración
+	cfg := defaultConfig()
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
+	decoder := xml.NewDecoder(r)
+
+	// 2. Inyectar el CharsetReader si la opción está activa
+	if cfg.useCharsetReader {
+		// Aquí usamos la función charsetReader definida en charset.go
+		decoder.CharsetReader = charsetReader
+	}
+
 	return &Stream[T]{
-		decoder: xml.NewDecoder(r),
+		decoder: decoder,
 		tagName: tagName,
 	}
 }

@@ -4,11 +4,6 @@ Este documento detalla las funcionalidades faltantes y mejoras planificadas para
 
 ## 🚀 Alta Prioridad
 
-### 1. Soporte de Charsets (ISO-8859-1, Windows-1252)
-**Impacto: Alto** | **Complejidad: Media**
-
-Actualmente, el parser asume UTF-8 por defecto. Muchos sistemas legados (bancos, gobierno) envían XML en codificaciones como ISO-8859-1.
-- **Necesidad**: Implementar `CharsetReader` en la configuración del decoder para transformar automáticamente el input a UTF-8.
 
 
 ### 3. Mejora en Reporte de Errores
