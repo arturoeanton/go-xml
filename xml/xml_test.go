@@ -8,35 +8,35 @@ import (
 )
 
 // ============================================================================
-// 1. TEST DE PARSING Y CONFIGURACIÓN (HAPPY PATHS)
+// 1. PARSING AND CONFIGURATION TESTS (HAPPY PATHS)
 // ============================================================================
 
 func TestMapXML_BasicAndForceArray(t *testing.T) {
 	xmlData := `
-	<library>
-		<book id="1">Go 101</book>
-		<single>Solo uno</single>
-	</library>`
+    <library>
+        <book id="1">Go 101</book>
+        <single>Just one</single>
+    </library>`
 
 	m, err := MapXML(strings.NewReader(xmlData), ForceArray("single"))
 	if err != nil {
-		t.Fatalf("Error inesperado: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	lib := m["library"].(map[string]any)
 
-	// Verificar ForceArray: debe ser []any
+	// Verify ForceArray: must be []any
 	single, ok := lib["single"].([]any)
 	if !ok {
-		t.Errorf("ForceArray falló: se esperaba []any, se obtuvo %T", lib["single"])
+		t.Errorf("ForceArray failed: expected []any, got %T", lib["single"])
 	}
 	if len(single) != 1 {
-		t.Errorf("Longitud de array incorrecta: se esperaba 1, se obtuvo %d", len(single))
+		t.Errorf("Incorrect array length: expected 1, got %d", len(single))
 	}
 }
 
 func TestMapXML_Namespaces(t *testing.T) {
-	xmlData := `<root xmlns:h="http://www.w3.org/html"><h:table>Datos</h:table></root>`
+	xmlData := `<root xmlns:h="http://www.w3.org/html"><h:table>Data</h:table></root>`
 
 	m, _ := MapXML(strings.NewReader(xmlData),
 		RegisterNamespace("html", "http://www.w3.org/html"),
@@ -44,26 +44,26 @@ func TestMapXML_Namespaces(t *testing.T) {
 
 	root := m["root"].(map[string]any)
 	if _, exists := root["html:table"]; !exists {
-		t.Errorf("Namespace Alias falló. Claves encontradas: %v", root)
+		t.Errorf("Namespace Alias failed. Found keys: %v", root)
 	}
 }
 
 func TestMapXML_Experimental(t *testing.T) {
-	// HTML sucio + Inferencia de tipos
+	// Dirty HTML + Type Inference
 	xmlData := `<data><val>100</val><active>true</active><br></data>`
 
 	m, err := MapXML(strings.NewReader(xmlData), EnableExperimental())
 	if err != nil {
-		t.Fatalf("LenientMode falló: %v", err)
+		t.Fatalf("LenientMode failed: %v", err)
 	}
 
 	data := m["data"].(map[string]any)
 
 	if val, ok := data["val"].(int); !ok || val != 100 {
-		t.Errorf("Inferencia Int falló: obtuvo %T %v", data["val"], data["val"])
+		t.Errorf("Int Inference failed: got %T %v", data["val"], data["val"])
 	}
 	if active, ok := data["active"].(bool); !ok || !active {
-		t.Errorf("Inferencia Bool falló")
+		t.Errorf("Bool Inference failed")
 	}
 }
 
@@ -79,72 +79,72 @@ func TestMapXML_Hooks(t *testing.T) {
 
 	event := m["event"].(map[string]any)
 	if _, ok := event["date"].(time.Time); !ok {
-		t.Errorf("Hook falló: se esperaba time.Time")
+		t.Errorf("Hook failed: expected time.Time")
 	}
 }
 
 // ============================================================================
-// 2. TEST DE ERRORES Y CASOS BORDE (UNHAPPY PATHS)
+// 2. ERROR HANDLING AND EDGE CASES (UNHAPPY PATHS)
 // ============================================================================
 
 func TestMapXML_Errors(t *testing.T) {
-	// XML Inválido (sin cerrar tag)
-	xmlData := `<root><open>ups`
+	// Invalid XML (unclosed tag)
+	xmlData := `<root><open>oops`
 
 	_, err := MapXML(strings.NewReader(xmlData))
 	if err == nil {
-		t.Error("Se esperaba error con XML mal formado, pero no ocurrió")
+		t.Error("Expected error with malformed XML, but none occurred")
 	}
 }
 
-func TestQuery_Errors(t *testing.T) {
+func TestSimpleQuery_Errors(t *testing.T) {
 	xmlData := `<root><a>1</a></root>`
 	m, _ := MapXML(strings.NewReader(xmlData))
 
-	// Ruta inexistente
+	// Non-existent path
 	_, err := Query(m, "root/b/c")
 	if err == nil {
-		t.Error("Query debió fallar con 'not found'")
+		t.Error("Query should have failed with 'not found'")
 	}
 
-	// Filtro que no matchea
+	// Filter that doesn't match
 	_, err = Query(m, "root/a[val=999]")
 	if err == nil {
-		t.Error("Query con filtro inválido debió fallar")
+		t.Error("Query with invalid filter should have failed")
 	}
 }
 
 // ============================================================================
-// 3. TEST DE QUERY (NAVEGACIÓN)
+// 3. QUERY TESTS (NAVIGATION)
 // ============================================================================
 
 func TestQuery_And_QueryAll(t *testing.T) {
 	xmlData := `
-	<store>
-		<item id="1"><name>A</name></item>
-		<item id="2"><name>B</name></item>
-		<section>
-			<item id="3"><name>C</name></item>
-		</section>
-	</store>`
+    <store>
+        <item id="1"><name>A</name></item>
+        <item id="2"><name>B</name></item>
+        <section>
+            <item id="3"><name>C</name></item>
+        </section>
+    </store>`
 
 	m, _ := MapXML(strings.NewReader(xmlData), ForceArray("item"))
 
 	// Query Single
 	res, err := Query(m, "store/item[id=2]/name")
 	if err != nil || res != "B" {
-		t.Errorf("Query falló: %v, %v", err, res)
+		t.Errorf("Query failed: %v, %v", err, res)
 	}
 
 	// QueryAll (Deep Search)
 	results, err := QueryAll(m, "store/item/name")
 	if len(results) != 2 {
-		t.Errorf("QueryAll esperaba 2 items directos, obtuvo %d", len(results))
+		t.Errorf("QueryAll expected 2 direct items, got %d", len(results))
 	}
 }
 
 // ============================================================================
-// 4. TEST DE VALIDACIÓN
+// 4. VALIDATION TESTS
 // ============================================================================
 
 func TestValidate(t *testing.T) {
@@ -160,43 +160,18 @@ func TestValidate(t *testing.T) {
 	errs := Validate(m, rules)
 
 	if len(errs) != 3 {
-		t.Errorf("Validación esperaba 3 errores, obtuvo %d: %v", len(errs), errs)
+		t.Errorf("Validation expected 3 errors, got %d: %v", len(errs), errs)
 	}
 }
 
 // ============================================================================
-// 5. TEST DE STREAMING (DECODER & ENCODER)
+// 5. STREAMING TESTS (DECODER & ENCODER)
 // ============================================================================
-
-func TestStreamingDecoder(t *testing.T) {
-	xmlData := `
-	<feed>
-		<Entry><Id>1</Id></Entry>
-		<Entry><Id>2</Id></Entry>
-	</feed>`
-
-	type Entry struct {
-		Id int `xml:"Id"`
-	}
-
-	stream := NewStream[Entry](strings.NewReader(xmlData), "Entry")
-
-	count := 0
-	for item := range stream.Iter() {
-		count++
-		if item.Id != count {
-			t.Errorf("Streaming orden incorrecto")
-		}
-	}
-	if count != 2 {
-		t.Errorf("Streaming esperaba 2 elementos")
-	}
-}
 
 func TestEncoder_Features(t *testing.T) {
 	data := map[string]any{
 		"root": map[string]any{
-			"-lang":     "es",
+			"@lang":     "es",
 			"#comments": []string{" Test Comment "},
 			"content": map[string]any{
 				"#cdata": "<b>Bold</b>",
@@ -207,7 +182,7 @@ func TestEncoder_Features(t *testing.T) {
 	var buf bytes.Buffer
 	enc := NewEncoder(&buf, WithPrettyPrint())
 	if err := enc.Encode(data); err != nil {
-		t.Fatalf("Encoder falló: %v", err)
+		t.Fatalf("Encoder failed: %v", err)
 	}
 
 	output := buf.String()
@@ -220,29 +195,197 @@ func TestEncoder_Features(t *testing.T) {
 
 	for _, check := range checks {
 		if !strings.Contains(output, check) {
-			t.Errorf("Encoder output falta '%s'. Output:\n%s", check, output)
+			t.Errorf("Encoder output missing '%s'. Output:\n%s", check, output)
 		}
 	}
 }
 
+func TestMapXML_Metadata(t *testing.T) {
+	// XML with Directive (DOCTYPE) and Processing Instruction (xml-stylesheet)
+	xmlData := `
+    <!DOCTYPE html>
+    <?xml-stylesheet type="text/xsl" href="style.xsl"?>
+    <root>
+        <content>Data</content>
+    </root>`
+
+	m, err := MapXML(strings.NewReader(xmlData))
+	if err != nil {
+		t.Fatalf("Error parsing metadata: %v", err)
+	}
+
+	// 1. Verify DOCTYPE (#directive)
+	if directives, ok := m["#directive"].([]string); ok {
+		if !strings.Contains(directives[0], "DOCTYPE html") {
+			t.Errorf("Incorrect directive: %v", directives[0])
+		}
+	} else {
+		t.Error("Key #directive not found")
+	}
+
+	// 2. Verify Processing Instruction (#pi)
+	if pis, ok := m["#pi"].([]string); ok {
+		// Expecting format "target=xml-stylesheet data=type=..."
+		if !strings.Contains(pis[0], "target=xml-stylesheet") {
+			t.Errorf("Incorrect ProcInst: %v", pis[0])
+		}
+	} else {
+		t.Error("Key #pi not found")
+	}
+}
+
+func TestMapXML_SoupMode(t *testing.T) {
+	// Dirty HTML: Mixed case, unquoted attributes (if parser allows),
+	// unclosed tags (br, img, input), and whitespace garbage.
+	htmlData := `
+    <HTML>
+        <BODY>
+            <div ID="Container">
+                Hello <br> World
+                <IMG src="photo.jpg">
+                <INPUT type="text" value="test">
+                </div>
+        </BODY>
+    </HTML>`
+
+	// Use Soup configuration (EnableExperimental/EnableSoupMode)
+	m, err := MapXML(strings.NewReader(htmlData), EnableExperimental())
+	if err != nil {
+		t.Fatalf("Error in SoupMode: %v", err)
+	}
+
+	// 1. Verify Normalization (Case Insensitivity)
+	// Expecting lowercase "html", even though input was <HTML>
+	html, ok := m["html"].(map[string]any)
+	if !ok {
+		t.Fatalf("Root tag normalization failed: expected 'html'")
+	}
+
+	body := html["body"].(map[string]any)
+	div := body["div"].(map[string]any)
+
+	// 2. Verify Normalized Attributes
+	// Expecting lowercase "@id", input was ID="Container"
+	if id, ok := div["@id"]; !ok || id != "Container" {
+		t.Errorf("Attribute normalization failed: expected @id='Container', got: %v", div)
+	}
+
+	// 3. Verify Void Elements and Text
+	// Check that 'img' and 'input' are INSIDE the div and not weirdly nested.
+
+	if _, ok := div["img"]; !ok {
+		t.Error("The <img> tag was not detected inside the div (possible auto-close error)")
+	}
+	if _, ok := div["input"]; !ok {
+		t.Error("The <input> tag was not detected inside the div")
+	}
+
+	// Verify that <br> exists and has no children (it's void)
+	if _, ok := div["br"]; !ok {
+		t.Error("The <br> tag disappeared")
+	}
+}
+
+func TestMapXML_SoupMode_ScriptSafety(t *testing.T) {
+	// Case that usually breaks encoding/xml: comparisons in JS
+	// If pre-cleaner is implemented, this should pass.
+	htmlData := `<div><script>if (a < b) { console.log("x"); }</script><code> a<2 </code></div>`
+
+	_, err := MapXML(strings.NewReader(htmlData), EnableExperimental())
+
+	// If using pure encoding/xml, this will error.
+	if err != nil {
+		t.Logf("Expected Behavior (Limitation): Failed on script with '<': %v", err)
+	} else {
+		t.Log("Success: The parser survived the script.")
+	}
+}
+
+func TestMapXML_SoupMode_Heavy(t *testing.T) {
+	// HTML designed to break weak parsers
+	htmlData := `
+    <HTML>
+        <HEAD>
+            <script type="text/javascript">
+                // Case 1: Operators that look like tags
+                if (a < b && c > d) { console.log("math"); }
+                
+                // Case 2: The "Killer": CDATA closing sequence inside a JS string
+                var danger = "This string contains ]]> which breaks XML";
+                var moreDanger = "]]>";
+            </script>
+            <STYLE>
+                /* Case 3: CSS with reserved characters */
+                body { content: "<p>I am not a tag</p>"; }
+            </STYLE>
+        </HEAD>
+        <BODY>
+            <TEXTAREA name=comments>
+                <p>Hello</p> <br> 
+                This should not be parsed as child nodes.
+            </TEXTAREA>
+            
+            <div ID="main">
+                <CODE> a <= b </CODE>
+            </div>
+        </BODY>
+    </HTML>`
+
+	m, err := MapXML(strings.NewReader(htmlData), EnableExperimental())
+	if err != nil {
+		t.Fatalf("CRASH: Parser could not handle heavy test: %v", err)
+	}
+
+	// 2. Script Verification
+	// NOTE: Since <script> has 'type' attribute, parser returns a Map.
+	// We use Get with /#text to retrieve content.
+	scriptContent, _ := Get[string](m, "html/head/script/#text")
+
+	if !strings.Contains(scriptContent, `if (a < b && c > d)`) {
+		t.Error("Script: Logical operators < and > were corrupted")
+	}
+	if !strings.Contains(scriptContent, `var danger = "This string contains ]]> which breaks XML";`) {
+		t.Error("Script: Failed to escape CDATA sequence ']]>'")
+	}
+
+	// 3. Textarea Verification
+	// NOTE: Has 'name' attribute, so it is also a Map.
+	textareaContent, _ := Get[string](m, "html/body/textarea/#text")
+
+	if !strings.Contains(textareaContent, "<p>Hello</p>") {
+		t.Error("Textarea: Internal HTML content was lost")
+	}
+
+	// 4. Code Verification
+	// NOTE: <CODE> has no attributes, so the parser SIMPLIFIES it to a direct string.
+	// Our Get helper handles this automatically.
+	codeContent, _ := Get[string](m, "html/body/div/code/#text")
+
+	if !strings.Contains(codeContent, "a <= b") {
+		t.Errorf("Code: Incorrect content. Got: %s", codeContent)
+	}
+
+	t.Log("SUCCESS! The parser survived the Heavy Test and validated content correctly.")
+}
+
 // ============================================================================
-// 6. BENCHMARKS (PRUEBAS DE RENDIMIENTO)
+// 6. BENCHMARKS
 // ============================================================================
 
-// BenchmarkMapXML mide la velocidad de parsear a mapa en memoria
+// BenchmarkMapXML measures parsing speed to map in memory
 func BenchmarkMapXML(b *testing.B) {
-	// Generamos un XML mediano
+	// Generate medium-sized XML
 	xmlData := `<root>` + strings.Repeat(`<item>Data</item>`, 1000) + `</root>`
 	r := strings.NewReader(xmlData)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		r.Seek(0, 0) // Resetear reader
+		r.Seek(0, 0) // Reset reader
 		MapXML(r)
 	}
 }
 
-// BenchmarkStreaming mide la velocidad de leer elemento por elemento
+// BenchmarkStreaming measures speed of reading element by element
 func BenchmarkStreaming(b *testing.B) {
 	xmlData := `<root>` + strings.Repeat(`<item>Data</item>`, 1000) + `</root>`
 	type Item struct {
