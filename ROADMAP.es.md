@@ -2,39 +2,55 @@
 
 Este documento detalla las funcionalidades faltantes y mejoras planificadas para el proyecto, ordenadas por impacto y complejidad.
 
-## 🚀 Alta Prioridad
+## 🚀 Alta Prioridad (Alto Impacto / Complejidad Baja-Media)
 
+### 1. Utilidad de Exportación JSON (`xml.ToJSON`)
+**Impacto: Alto** | **Complejidad: Baja**
 
+Muchos usuarios parsean XML únicamente para convertirlo a JSON para otros servicios.
+- **Necesidad**: Un método helper `xml.ToJSON(r io.Reader) ([]byte, error)` que canalice el parseo y el marshalling Map-a-JSON en un solo paso optimizado.
 
-### 3. Mejora en Reporte de Errores
-**Impacto: Medio** | **Complejidad: Baja**
+### 2. Mejora en Reporte de Errores
+**Impacto: Alto** | **Complejidad: Baja**
 
-Los errores de validación y parseo son genéricos.
-- **Necesidad**: Exponer número de línea y columna donde ocurrió el error, especialmente útil para archivos grandes o mal formados.
+Los errores de validación y parseo son genéricos ("parsing error").
+- **Necesidad**: Exponer número de línea y columna donde ocurrió el error en el tipo `xml.Error`, esencial para depurar archivos grandes o mal formados.
 
-## 🔮 Media Prioridad
+### 3. Soporte de Wildcards en Query
+**Impacto: Alto** | **Complejidad: Media**
 
-### 4. XPath 1.0 Completo
-**Impacto: Medio/Alto** | **Complejidad: Alta**
+Navegar listas dinámicas donde las claves son desconocidas es difícil actualmente (requiere iteración manual).
+- **Necesidad**: Soportar el comodín `*` en rutas de `Query`, ej: `invoice/items/*/sku` para obtener todos los SKUs sin importar el tag contenedor.
 
-El sistema actual de Query (`users/user[0]/name`) es potente pero limitado. No soporta ejes complejos (`following-sibling`, `ancestor`) ni funciones XPath (`count()`, `contains()`).
-- **Necesidad**: Evaluar si implementar un motor XPath real o seguir extendiendo el mini-lenguaje actual.
+## 🔮 Media Prioridad (Funcionalidades Estratégicas)
+
+### 4. Extracción de Nodo Crudo (Canonicalización)
+**Impacto: Medio/Alto** | **Complejidad: Media**
+
+Usuarios empresariales (bancos, crypto) a menudo necesitan el string fuente *inalterado* de un nodo específico para verificar firmas digitales (HMAC/RSA).
+- **Necesidad**: Mecanismo para extraer los bytes crudos de un nodo (ej: `<signedInfo>...</signedInfo>`) durante el parseo.
 
 ### 5. Generación de Structs (CLI)
 **Impacto: Bajo** | **Complejidad: Media**
 
-Aunque la filosofía es "no usar structs", a veces se necesita migrar o interoperar con sistemas que sí los usan.
+Aunque la filosofía es "no usar structs", a veces la migración o interoperabilidad los requiere.
 - **Necesidad**: Un comando CLI (`go run main.go gen-struct data.xml`) que infiera y genere el código Go de los structs basándose en un XML de muestra.
 
-## 🧊 Baja Prioridad / Futuro
+## 🧊 Baja Prioridad / Futuro (Alta Complejidad / Nicho)
 
-### 6. Validación contra XSD (Schema)
+### 6. Soporte XPath 1.0 Completo
+**Impacto: Medio** | **Complejidad: Alta**
+
+El sistema actual de `Query` es suficiente para el 90% de los casos. XPath 1.0 completo implica soportar ejes (`following-sibling`, `ancestor`) y funciones (`count()`, `contains()`).
+- **Necesidad**: Esperar demanda de usuarios antes de implementar un motor completo.
+
+### 7. Validación contra XSD (Schema)
 **Impacto: Medio** | **Complejidad: Muy Alta**
 
-Validar contra un archivo XSD estándar es extremadamente complejo de implementar desde cero, pero es el estándar de oro en la industria.
-- **Necesidad**: Integrar soporte parcial o wrappers de C para validación estricta si el usuario lo requiere.
+Validar contra un archivo XSD estándar es el estándar de oro pero extremadamente complejo de implementar.
+- **Necesidad**: Evaluar wrappers de C (libxml2) si la validación estricta es crítica.
 
-### 7. Soporte Híbrido (Marshal/Unmarshal)
+### 8. Soporte Híbrido (Marshal/Unmarshal)
 **Impacto: Bajo** | **Complejidad: Media**
 
-Permitir usar `MapXML` como un paso intermedio para luego decodificar en un struct estándar de Go, para usuarios que quieren lo mejor de los dos mundos.
+Permitir usar `MapXML` como un paso intermedio para luego decodificar en un struct estándar de Go.
