@@ -167,7 +167,19 @@ jsonBytes, _ := xml.ToJSON(r)
 fmt.Println(string(jsonBytes))
 ```
 
-### 8. Soporte de Charsets Legados (ISO-8859-1 / Windows-1252)
+### 8. Manejo de Errores
+El parser retorna `*xml.SyntaxError` que incluye el número de línea donde ocurrió el error, facilitando la depuración.
+
+```go
+_, err := xml.MapXML(r)
+if err != nil {
+    if syntaxErr, ok := err.(*xml.SyntaxError); ok {
+        fmt.Printf("Error en línea %d: %s\n", syntaxErr.Line, syntaxErr.Msg)
+    }
+}
+```
+
+### 9. Soporte de Charsets Legados (ISO-8859-1 / Windows-1252)
 El parser maneja UTF-8 automáticamente. Para sistemas legados (bancos, gobierno) que envían ISO-8859-1 o Windows-1252, usa `EnableLegacyCharsets()`.
 
 ```go

@@ -5,11 +5,6 @@ This document details missing functionalities and planned improvements for the p
 ## 🚀 High Priority (High Impact / Low-Medium Complexity)
 
 
-### 2. Improved Error Reporting
-**Impact: High** | **Complexity: Low**
-
-Validation and parsing errors are generic ("parsing error").
-- **Need**: Expose line and column numbers where the error occurred in the `xml.Error` type, essential for debugging large or malformed files.
 
 ### 3. Wildcard Support in Query
 **Impact: High** | **Complexity: Medium**

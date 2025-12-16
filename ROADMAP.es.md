@@ -5,11 +5,6 @@ Este documento detalla las funcionalidades faltantes y mejoras planificadas para
 ## 🚀 Alta Prioridad (Alto Impacto / Complejidad Baja-Media)
 
 
-### 2. Mejora en Reporte de Errores
-**Impacto: Alto** | **Complejidad: Baja**
-
-Los errores de validación y parseo son genéricos ("parsing error").
-- **Necesidad**: Exponer número de línea y columna donde ocurrió el error en el tipo `xml.Error`, esencial para depurar archivos grandes o mal formados.
 
 ### 3. Soporte de Wildcards en Query
 **Impacto: Alto** | **Complejidad: Media**
