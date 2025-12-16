@@ -168,7 +168,7 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 			}
 
 			// 3. Si NO es Soup Mode, el error es fatal (comportamiento default).
-			return nil, err
+			return nil, wrapError(err)
 		}
 
 		switch se := token.(type) {
