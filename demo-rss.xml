@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+  <title>Go-XML News</title>
+  <link>https://github.com/arturoeanton/go-xml</link>
+  <description>Latest updates from the Go-XML project</description>
+  <item>
+    <title>CLI Feature Added</title>
+    <link>https://github.com/arturoeanton/go-xml/releases/v3.1</link>
+    <description>New CLI tool supports direct JSON conversion and XPath queries.</description>
+    <pubDate>Mon, 16 Dec 2025 00:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Legacy Charset Support</title>
+    <link>https://github.com/arturoeanton/go-xml/releases/v3.0</link>
+    <description>Added support for ISO-8859-1 and Windows-1252.</description>
+    <pubDate>Sun, 15 Dec 2025 12:00:00 GMT</pubDate>
+  </item>
+</channel>
+</rss>

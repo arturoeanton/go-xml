@@ -192,8 +192,10 @@ m, err := xml.MapXML(r, xml.EnableLegacyCharsets())
 You can use the `main.go` as a standalone CLI tool to query XML files from the terminal.
 
 ```bash
-# Query a value from an XML file
-cat data.xml | go run main.go query "users/user[0]/name"
+# Converter: XML to JSON
+go run main.go --json data.xml > data.json
+# Or via pipe
+cat data.xml | go run main.go --json > data.json
 ```
 
 ## ⚙️ Implementation Details

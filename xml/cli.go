@@ -22,6 +22,49 @@ func RunCLI() {
 	}
 
 	cmd := os.Args[1]
+
+	// 1. JSON Converter Mode
+	// Usage:
+	//   cat data.xml | go run main.go --json
+	//   go run main.go data.xml --json
+	//   go run main.go --json data.xml
+
+	// Check if --json is in args
+	hasJsonFlag := false
+	filePath := ""
+
+	for _, arg := range os.Args[1:] {
+		if arg == "--json" {
+			hasJsonFlag = true
+		} else if arg != "query" && !os.IsNotExist(func() error { _, err := os.Stat(arg); return err }()) {
+			// Simple heuristic: if it exists, it's a file
+			filePath = arg
+		}
+	}
+
+	if hasJsonFlag {
+		var r *os.File = os.Stdin
+		var err error
+
+		if filePath != "" {
+			r, err = os.Open(filePath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error opening file '%s': %v\n", filePath, err)
+				os.Exit(1)
+			}
+			defer r.Close()
+		}
+
+		jsonBytes, err := ToJSON(r)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error converting to JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(jsonBytes))
+		os.Exit(0)
+	}
+
+	// 2. Query Mode
 	if cmd == "query" && len(os.Args) >= 3 {
 		path := os.Args[2]
 

@@ -1,0 +1,38 @@
+<library>
+    <info>
+        <name>Public Library of Go</name>
+        <established>2009</established>
+    </info>
+    <books>
+        <book id="1" type="fiction">
+            <title>The Gopher's Journey</title>
+            <author>Alan Turing</author>
+            <price>19.99</price>
+        </book>
+        <book id="2" type="reference">
+            <title>XML Parsing for Dummies</title>
+            <author>Grace Hopper</author>
+            <price>29.99</price>
+        </book>
+        <book id="3" type="fiction">
+            <title>Concurrency in Action</title>
+            <author>Rob Pike</author>
+            <price>39.99</price>
+        </book>
+    </books>
+    <members>
+        <member active="true">
+            <name>Alice</name>
+            <loans>
+                <loan>1</loan>
+            </loans>
+        </member>
+        <member active="false">
+            <name>Bob</name>
+            <loans>
+                <loan>2</loan>
+                <loan>3</loan>
+            </loans>
+        </member>
+    </members>
+</library>

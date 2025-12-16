@@ -34,6 +34,10 @@ var demoRegistry = map[string]func(){
 	"stream_r": demo_v3_StreamingDecoder,
 	"stream_w": demo_v3_StreamingEncoder,
 	"validate": demo_v3_Validation,
+
+	// v3.0 - Utilities & Legacy
+	"legacy": demo_v3_LegacyCharsets,
+	"json":   demo_v3_JSONConversion,
 }
 
 // RunDemos: El orquestador que llama el main()
@@ -49,6 +53,7 @@ func RunDemos(arg string) {
 			"ns", "query", "hooks",
 			"cdata", "validate",
 			"stream_r", "stream_w",
+			"legacy", "json",
 		}
 
 		for _, name := range runSequence {
@@ -281,4 +286,49 @@ func demo_v3_StreamingEncoder() {
 		fmt.Println("Error encoding:", err)
 	}
 	fmt.Println() // Salto de línea final
+}
+
+// ============================================================================
+// DEMOS v3.0 - UTILITIES & LEGACY
+// ============================================================================
+
+func demo_v3_LegacyCharsets() {
+	fmt.Println("Objetivo: Parsear XML codificado en ISO-8859-1 (Latin1).")
+
+	// "café" en ISO-8859-1 es: 0x63, 0x61, 0x66, 0xE9
+	// Si lo leyéramos como UTF-8 sin CharsetReader, fallaría o daría basura.
+	isoData := []byte{
+		'<', 'd', 'a', 't', 'a', '>',
+		'c', 'a', 'f', 0xE9,
+		'<', '/', 'd', 'a', 't', 'a', '>',
+	}
+
+	fmt.Println("Input (Bytes):", isoData)
+
+	reader := strings.NewReader(string(isoData)) // Nota: string(bytes) preserva los bytes tal cual en Go
+
+	m, err := xml.MapXML(reader, xml.EnableLegacyCharsets())
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Mapa Resultante: %v\n", m)
+	// Output esperado: cafÃ© (UTF-8) si la consola lo soporta, o los bytes correctos.
+}
+
+func demo_v3_JSONConversion() {
+	fmt.Println("Objetivo: Convertir XML a JSON limpio (sin metadatos).")
+
+	xmlData := `<user id="42"><name>Alice</name><active>true</active></user>`
+	reader := strings.NewReader(xmlData)
+
+	jsonBytes, err := xml.ToJSON(reader)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	fmt.Printf("XML Input: %s\n", xmlData)
+	fmt.Printf("JSON Output: %s\n", string(jsonBytes))
 }
