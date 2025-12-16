@@ -9,10 +9,10 @@
 *   **Streaming Support**:
     *   **Decoder**: Process multi-gigabyte files with constant memory usage using Generic `Stream[T]`.
     *   **Encoder**: Write XML directly to an `io.Writer` for high-efficiency pipeline processing.
-*   **Robust & Lenient**: Capable of reading "soup" HTML/XML (unclosed tags like `<br>`, `<meta>`) with lenient mode.
+*   **Robust & Lenient**: Capable of reading "soup" HTML/XML (unclosed tags like `<br>`, `<meta>`) with lenient mode. Use `EnableExperimental()` to activate Soup Mode (automatic sanitization of `<script>` tags, lowercase normalization, and HTML void tag support).
 *   **Advanced Querying**: XPath-style deep querying utilities (e.g., `users/user[0]/name`).
 *   **Validation Engine**: Define business rules for your data (Regex, Range, Enum, Type).
-*   **Attributes as Data**: Attributes are treated as first-class citizens, accessible via a simple `-` prefix convention.
+*   **Attributes as Data**: Attributes are treated as first-class citizens, accessible via a simple `@` prefix convention.
 *   **Namespaces Helpers**: Register aliases to work with short keys instead of full URLs.
 *   **Value Hooks**: Define custom logic to transform strings into native Go types (Dates, Enums, etc.) during parsing.
 *   **Built-in CLI**: Includes a terminal tool for quick XML querying.
@@ -51,7 +51,7 @@ func main() {
     book := lib["book"].(map[string]any)
 
     fmt.Println("Title:", book["#text"]) // "The Little Prince"
-    fmt.Println("ID:", book["-id"])      // "1" (Attributes use '-' prefix)
+    fmt.Println("ID:", book["@id"])      // "1" (Attributes use '@' prefix)
 }
 ```
 
@@ -119,6 +119,11 @@ func main() {
     for order := range stream.Iter() {
         fmt.Printf("Processing Order %d: $%.2f\n", order.ID, order.Total)
     }
+
+    // Or with Context for cancellation/timeout:
+    // ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    // defer cancel()
+    // for order := range stream.IterWithContext(ctx) { ... }
 }
 ```
 
@@ -128,7 +133,7 @@ Write XML directly to an `io.Writer` (like `http.ResponseWriter` or `os.File`) e
 ```go
 data := map[string]any{
     "feed": map[string]any{
-        "-version": "2.0",
+        "@version": "2.0",
         "title":    "Tech Blog",
     },
 }
@@ -172,7 +177,7 @@ The library is designed as a **Single-File** solution (conceptually) to minimize
 The internal representation follows these conventions to map XML to `map[string]any`:
 
 *   **Elements**: Become dictionary keys (`<tag>` -> `"tag"`).
-*   **Attributes**: Become keys prefixed with a hyphen (`id="1"` -> `"-id": "1"`).
+*   **Attributes**: Become keys prefixed with `@` (`id="1"` -> `"@id": "1"`).
 *   **Text Content**: Stored in the special key `"#text"`.
 *   **Comments**: Stored in `"#comments"` (list of strings).
 *   **CDATA**: Stored in `"#cdata"`.

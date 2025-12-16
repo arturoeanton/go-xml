@@ -9,10 +9,10 @@
 *   **Soporte de Streaming**:
     *   **Decoder**: Procesa archivos de varios gigabytes con uso constante de memoria usando `Stream[T]` Genérico.
     *   **Encoder**: Escribe XML directamente a un `io.Writer` para procesamiento eficiente en tuberías.
-*   **Robusto y Permisivo**: Capaz de leer HTML/XML "sopa" (tags sin cerrar como `<br>`, `<meta>`) con modo permisivo.
+*   **Robusto y Permisivo**: Capaz de leer HTML/XML "sopa" (tags sin cerrar como `<br>`, `<meta>`) con modo permisivo. Usa `EnableExperimental()` para activar el Modo Soup (sanitización automática de `<script>`, normalización a minúsculas y soporte de tags HTML vacíos).
 *   **Consultas Avanzadas**: Utilidades de consulta profunda estilo XPath (ej: `users/user[0]/name`).
 *   **Motor de Validación**: Define reglas de negocio para tus datos (Regex, Rango, Enum, Tipo).
-*   **Atributos como Datos**: Los atributos son tratados como ciudadanos de primera clase, accesibles mediante una convención de prefijo `-`.
+*   **Atributos como Datos**: Los atributos son tratados como ciudadanos de primera clase, accesibles mediante una convención de prefijo `@`.
 *   **Namespaces Helpers**: Registra alias para trabajar con claves cortas en lugar de URLs completas.
 *   **Hooks de Valor**: Define lógica personalizada para transformar strings en tipos nativos de Go (Fechas, Enums, etc.) durante el parseo.
 *   **CLI Integrado**: Incluye una herramienta de terminal para consultas rápidas de XML.
@@ -51,7 +51,7 @@ func main() {
     book := lib["book"].(map[string]any)
 
     fmt.Println("Título:", book["#text"]) // "El Principito"
-    fmt.Println("ID:", book["-id"])       // "1" (Los atributos usan prefijo '-')
+    fmt.Println("ID:", book["@id"])       // "1" (Los atributos usan prefijo '@')
 }
 ```
 
@@ -119,6 +119,11 @@ func main() {
     for order := range stream.Iter() {
         fmt.Printf("Procesando Orden %d: $%.2f\n", order.ID, order.Total)
     }
+
+    // O con Context para cancelación/timeout:
+    // ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+    // defer cancel()
+    // for order := range stream.IterWithContext(ctx) { ... }
 }
 ```
 
@@ -128,7 +133,7 @@ Escribe XML directamente a un `io.Writer` (como `http.ResponseWriter` u `os.File
 ```go
 data := map[string]any{
     "feed": map[string]any{
-        "-version": "2.0",
+        "@version": "2.0",
         "title":    "Blog Tech",
     },
 }
@@ -172,7 +177,7 @@ La librería está diseñada como una solución de **Archivo Único** (conceptua
 La representación interna sigue estas convenciones para mapear XML a `map[string]any`:
 
 *   **Elementos**: Se convierten en claves del diccionario (`<tag>` -> `"tag"`).
-*   **Atributos**: Se convierten en claves con prefijo guión (`id="1"` -> `"-id": "1"`).
+*   **Atributos**: Se convierten en claves con prefijo `@` (`id="1"` -> `"@id": "1"`).
 *   **Contenido de Texto**: Se almacena en la clave especial `"#text"`.
 *   **Comentarios**: Se almacenan en `"#comments"` (lista de strings).
 *   **CDATA**: Se almacena en `"#cdata"`.

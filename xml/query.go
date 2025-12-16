@@ -7,9 +7,20 @@ import (
 )
 
 // ============================================================================
-// 5. QUERY & VALIDATION (Sin Cambios Mayores)
+// 5. QUERY ENGINE
 // ============================================================================
 
+// QueryAll searches the data structure for all nodes matching the provided path.
+// It returns a slice of matches found.
+//
+// Path Syntax:
+//   - Deep Navigation: "library/section/book" (Traverse nested maps)
+//   - Array Indexing:  "users/user[0]" (Access specific index)
+//   - Attribute/Value Filtering: "users/user[id=5]" or "book[@lang=en]"
+//   - Text Extraction: "book/title/#text" (Explicit text node access)
+//
+// Note: If the path targets a list directly (e.g., "tags"), QueryAll returns
+// the list itself as a single result in the slice, rather than flattening it.
 func QueryAll(data any, path string) ([]any, error) {
 	if path == "" {
 		return []any{data}, nil
@@ -23,6 +34,9 @@ func QueryAll(data any, path string) ([]any, error) {
 		}
 		var nextCandidates []any
 		for _, candidate := range currentCandidates {
+			// Normalize candidate to a list for iteration.
+			// This handles the automatic "flattening" required for deep search
+			// when the previous result was a list of objects.
 			nodesToSearch := []any{candidate}
 			if list, ok := candidate.([]any); ok {
 				nodesToSearch = list
@@ -32,10 +46,11 @@ func QueryAll(data any, path string) ([]any, error) {
 				key, fKey, fVal, idx := parseSegment(segment)
 
 				// ========================================================
-				// [INSERTAR AQUÍ] LOGICA SMART #TEXT
+				// SMART #TEXT LOGIC
 				// ========================================================
-				// Si piden "#text" y el nodo es un primitivo (string/int),
-				// lo agregamos directo y pasamos al siguiente.
+				// If the user requests "#text" and the node is a primitive
+				// (string/int/float/bool) resulting from parser simplification,
+				// we return the value directly.
 				if key == "#text" {
 					switch node.(type) {
 					case string, int, float64, bool:
@@ -51,7 +66,9 @@ func QueryAll(data any, path string) ([]any, error) {
 						continue
 					}
 
-					if fKey != "" { // Filtro
+					if fKey != "" {
+						// Filter Strategy: [key=value]
+						// Iterates over the list and selects items matching criteria.
 						if list, ok := val.([]any); ok {
 							for _, item := range list {
 								if matchFilter(item, fKey, fVal) {
@@ -59,30 +76,35 @@ func QueryAll(data any, path string) ([]any, error) {
 								}
 							}
 						}
-					} else if idx >= 0 { // Indice
+					} else if idx >= 0 {
+						// Index Strategy: [i]
+						// Selects a specific element from the list.
 						if list, ok := val.([]any); ok {
 							if idx < len(list) {
 								nextCandidates = append(nextCandidates, list[idx])
 							}
 						}
-					} else { // Todo
-						if list, ok := val.([]any); ok {
-							nextCandidates = append(nextCandidates, list...)
-						} else {
-							nextCandidates = append(nextCandidates, val)
-						}
+					} else {
+						// Select All Strategy
+						// IMPORTANT: We append the value 'as is'.
+						// If 'val' is a list (e.g., tags: ["a", "b"]), we append the list itself.
+						// We do NOT flatten here because QueryAll results should represent
+						// the distinct nodes found at this path level.
+						nextCandidates = append(nextCandidates, val)
 					}
 				}
 			}
 		}
 		if len(nextCandidates) == 0 {
-			return nil, nil
+			return nil, nil // Not found
 		}
 		currentCandidates = nextCandidates
 	}
 	return currentCandidates, nil
 }
 
+// parseSegment parses a path segment to extract the key, filter parameters, or index.
+// It handles syntax like "user", "user[0]", and "user[id=1]".
 func parseSegment(seg string) (key, fKey, fVal string, idx int) {
 	idx = -1
 	key = seg
@@ -100,11 +122,15 @@ func parseSegment(seg string) (key, fKey, fVal string, idx int) {
 	return
 }
 
+// matchFilter checks if an item satisfies the "key=value" condition.
+// It checks both direct keys and attribute keys (prefixed with "@").
 func matchFilter(item any, k, v string) bool {
 	if m, ok := item.(map[string]any); ok {
+		// Check direct child value
 		if val, exists := m[k]; exists && fmt.Sprintf("%v", val) == v {
 			return true
 		}
+		// Check attribute value
 		if val, exists := m["@"+k]; exists && fmt.Sprintf("%v", val) == v {
 			return true
 		}
@@ -112,6 +138,9 @@ func matchFilter(item any, k, v string) bool {
 	return false
 }
 
+// Query is a convenience wrapper around QueryAll that returns the first matching result.
+// It returns an error if no matching node is found.
+// This is useful when you expect a single value or only care about the first match.
 func Query(data any, path string) (any, error) {
 	res, err := QueryAll(data, path)
 	if err != nil {
@@ -120,15 +149,31 @@ func Query(data any, path string) (any, error) {
 	if len(res) == 0 {
 		return nil, fmt.Errorf("not found")
 	}
+	// Since QueryAll preserves lists as single items, res[0] is the correct result.
 	return res[0], nil
 }
 
+// Rule defines a validation constraint for the Validate engine.
+// It is used to enforce schema-like requirements on dynamic maps.
 type Rule struct {
-	Path     string
+	// Path to the element to validate (e.g., "server/port").
+	Path string
+
+	// Required enforces that the path must exist.
 	Required bool
-	Type     string
-	Min      float64
-	Max      float64
-	Regex    string
-	Enum     []string
+
+	// Type enforces the data type ("int", "float", "string", "array", "bool").
+	Type string
+
+	// Min enforces a minimum numeric value.
+	Min float64
+
+	// Max enforces a maximum numeric value.
+	Max float64
+
+	// Regex enforces a string pattern match.
+	Regex string
+
+	// Enum enforces that the value must be one of the provided strings.
+	Enum []string
 }

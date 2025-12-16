@@ -10,11 +10,6 @@ Este documento detalla las funcionalidades faltantes y mejoras planificadas para
 Actualmente, el parser asume UTF-8 por defecto. Muchos sistemas legados (bancos, gobierno) envían XML en codificaciones como ISO-8859-1.
 - **Necesidad**: Implementar `CharsetReader` en la configuración del decoder para transformar automáticamente el input a UTF-8.
 
-### 2. Context-Aware Streaming
-**Impacto: Alto** | **Complejidad: Baja**
-
-El streaming actual (`Stream[T]`) corre en una goroutine separada hasta que termina el archivo. No hay forma de cancelar el proceso si el request HTTP se corta o expira el tiempo.
-- **Necesidad**: Agregar soporte para `context.Context` en `NewStream` o `Iter`, permitiendo cancelar la goroutine y liberar recursos inmediatamente.
 
 ### 3. Mejora en Reporte de Errores
 **Impacto: Medio** | **Complejidad: Baja**

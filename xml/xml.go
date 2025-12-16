@@ -11,41 +11,45 @@ import (
 /*
 	r2/xml v1.0 - "The Enterprise Single-File XML Parser"
 	=====================================================
-	Una solución robusta, "Zero-Dependency" y autocontenida para XML en Go.
-	Diseñada para reemplazar encoding/xml en escenarios dinámicos y de alto rendimiento.
+	A robust, "Zero-Dependency", self-contained XML parser/mapper for Go.
+	Designed to replace encoding/xml in dynamic scenarios and high-performance requirements.
 
-	Lista Completa de Features:
-	1. MapXML Engine: Lectura dinámica a map[string]any con optimización automática de texto (Text Simplification).
-	2. Namespace Manager: Limpieza automática de URLs en lectura (Aliasing) e inyección en escritura (Definitions).
-	3. ForceArray: Garantiza listas ([]any) eliminando la ambigüedad de items únicos (JSON-Ready).
-	4. Streaming Decoder: Lectura eficiente de archivos gigantes (GBs) usando Generics (Stream[T]).
-	5. Streaming Encoder: Escritura directa a io.Writer sin buffers, soportando Atributos en Root.
-	6. Query Engine: Navegación profunda con filtros ([k=v]), índices ([i]) y búsqueda recursiva (QueryAll).
-	7. Business Validation: Motor de reglas integrado (Required, Type, Min/Max, Regex, Enum).
-	8. Smart Parsing: Inferencia de tipos (int/bool), Modo "Lenient" (HTML sucio) y Hooks de transformación.
-	9. Rich Content Support: Manejo nativo de bloques CDATA (#cdata) y preservación de Comentarios (#comments).
-	10. CLI Helper: Funcionalidad lista para usar como herramienta de línea de comandos.
+	Feature List:
+	1. MapXML Engine: Dynamic reading into map[string]any with automatic Text Simplification.
+	2. Namespace Manager: Automatic URL cleaning (Aliasing) and injection on write (Definitions).
+	3. ForceArray: Guarantees lists ([]any) by removing ambiguity for single items (JSON-Ready).
+	4. Streaming Decoder: Efficient reading of giant files (GBs) using Generics (Stream[T]).
+	5. Streaming Encoder: Direct writing to io.Writer without buffers, supporting Root Attributes.
+	6. Query Engine: Deep navigation with filters ([k=v]), indices ([i]), and recursive search (QueryAll).
+	7. Business Validation: Integrated rule engine (Required, Type, Min/Max, Regex, Enum).
+	8. Smart Parsing: Type inference (int/bool), "Lenient Mode" (Dirty HTML), and Transformation Hooks.
+	9. Rich Content Support: Native handling of CDATA blocks (#cdata) and Comment preservation (#comments).
+	10. Soup Mode: Robust HTML scraping capabilities (case-insensitive, script protection, void tags).
 */
 
 // ============================================================================
-// 1. CONFIGURACIÓN Y OPCIONES
+// 1. CONFIGURATION AND OPTIONS
 // ============================================================================
 
 type config struct {
-	forceArrayKeys map[string]bool             // Tags que siempre serán lista
-	namespaces     map[string]string           // Alias de Namespaces
-	valueHooks     map[string]func(string) any // Hooks de transformación
+	forceArrayKeys map[string]bool             // Tags that will always be treated as a list
+	namespaces     map[string]string           // Namespace Aliases
+	valueHooks     map[string]func(string) any // Transformation Hooks
 
 	// Flags
-	isLenient   bool // HTML/XML sucio
-	inferTypes  bool // Inferencia automática
-	prettyPrint bool // Indentación
+	isLenient   bool // Tolerant mode for dirty HTML/XML
+	inferTypes  bool // Automatic type inference (int, bool, float)
+	prettyPrint bool // Indentation for the encoder
+	isSoupMode  bool // "Soup Mode" (Dirty HTML - Normalization & Sanitization)
 
-	htmlAutoClose []string
+	htmlAutoClose []string // List of HTML Void Elements
 }
 
+// Option defines a function to modify the parser configuration.
 type Option func(*config)
 
+// ForceArray returns an Option that forces specific tags to be parsed as arrays ([]any).
+// This prevents the common XML-to-JSON ambiguity where single items are parsed as objects.
 func ForceArray(keys ...string) Option {
 	return func(c *config) {
 		for _, k := range keys {
@@ -54,28 +58,46 @@ func ForceArray(keys ...string) Option {
 	}
 }
 
+// RegisterNamespace returns an Option that registers a short alias for a namespace URL.
+// Example: RegisterNamespace("html", "http://www.w3.org/html")
 func RegisterNamespace(alias, url string) Option {
 	return func(c *config) { c.namespaces[url] = alias }
 }
 
+// WithValueHook returns an Option that registers a custom transformation function for a specific tag.
+// Use this to parse dates, custom formats, or decrypt data on the fly.
 func WithValueHook(tagName string, fn func(string) any) Option {
 	return func(c *config) { c.valueHooks[tagName] = fn }
 }
 
+// EnableExperimental (Soup Mode) enables aggressive settings for parsing dirty HTML.
+// It activates:
+// 1. Type Inference (strings are converted to int/bool/float if possible).
+// 2. Lenient Mode (ignores strict XML syntax errors).
+// 3. Soup Mode (Case-insensitive normalization for tags and attributes).
+// 4. Void Element support (e.g., <br>, <img>, <input>).
 func EnableExperimental() Option {
 	return func(c *config) {
 		c.inferTypes = true
 		c.isLenient = true
-		c.htmlAutoClose = []string{"br", "img", "input", "meta", "hr", "link"}
+		c.isSoupMode = true // Activates lowercase normalization
+
+		// Complete list of Void Elements (HTML5)
+		c.htmlAutoClose = []string{
+			"area", "base", "br", "col", "embed", "hr", "img", "input",
+			"link", "meta", "param", "source", "track", "wbr",
+			"command", "keygen", "menuitem",
+		}
 	}
 }
 
+// WithPrettyPrint enables indentation for the Encoder (output beautification).
 func WithPrettyPrint() Option {
 	return func(c *config) { c.prettyPrint = true }
 }
 
 // ============================================================================
-// 2. PARSER CORE (MapXML - Lectura en Memoria)
+// 2. PARSER CORE (MapXML - In-Memory Reading)
 // ============================================================================
 
 type node struct {
@@ -83,7 +105,8 @@ type node struct {
 	data    map[string]any
 }
 
-// MapXML lee todo el XML y devuelve un mapa dinámico.
+// MapXML reads the entire XML input from the reader and returns a dynamic map[string]any.
+// It handles hierarchical data, attributes, CDATA, comments, and preserves mixed-content order via "#seq".
 func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 	cfg := &config{
 		forceArrayKeys: make(map[string]bool),
@@ -92,6 +115,12 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 	}
 	for _, opt := range opts {
 		opt(cfg)
+	}
+
+	// === NEW: SANITIZER INJECTION ===
+	// If Soup Mode is active, we protect raw tags (like scripts) before parsing.
+	if cfg.isSoupMode {
+		r = sanitizeSoup(r)
 	}
 
 	decoder := xml.NewDecoder(r)
@@ -109,31 +138,86 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 		if err == io.EOF {
 			break
 		}
+		// === CORRECCIÓN ANTI-BLOQUEO ===
 		if err != nil {
-			return nil, fmt.Errorf("error parseo: %v", err)
+			// Si hay un error de sintaxis (incluso en SoupMode),
+			// NO hagas 'continue', porque el decoder se queda pegado en el mismo error.
+			return nil, fmt.Errorf("xml parsing error: %v", err)
+		}
+		// In Soup Mode, we attempt to recover from mild errors (Best Effort).
+		if err != nil && cfg.isSoupMode && err != io.EOF {
+			continue // Ignore error and continue parsing
+		} else if err != nil {
+			return nil, fmt.Errorf("parsing error: %v", err)
 		}
 
 		switch se := token.(type) {
 		case xml.StartElement:
-			tagName := resolveName(se.Name, cfg.namespaces)
+			// 1. TAG NORMALIZATION (Fix for Soup Mode)
+			localName := se.Name.Local
+			if cfg.isSoupMode {
+				localName = strings.ToLower(localName)
+			}
+
+			tagName := resolveName(xml.Name{Space: se.Name.Space, Local: localName}, cfg.namespaces)
 			currentMap := make(map[string]any)
 
 			for _, attr := range se.Attr {
-				attrName := resolveName(attr.Name, cfg.namespaces)
+				// 2. ATTRIBUTE NORMALIZATION
+				attrName := attr.Name.Local
+				if cfg.isSoupMode {
+					attrName = strings.ToLower(attrName)
+				}
+				attrName = resolveName(xml.Name{Space: attr.Name.Space, Local: attrName}, cfg.namespaces)
+
 				currentMap["@"+attrName] = processValue(attr.Value, "", cfg)
 			}
 			stack = append(stack, &node{tagName: tagName, data: currentMap})
 
 		case xml.CharData:
-			content := strings.TrimSpace(string(se))
-			if content != "" {
+			rawContent := string(se)
+
+			// 1. Limpieza para #text (Vista de Datos - Trimmed)
+			// Eliminamos ruido para que acceder a m["id"] devuelva "123" y no " 123 "
+			textContent := strings.TrimSpace(rawContent)
+
+			// 2. Limpieza para #seq (Vista de Documento - Preserved)
+			// Solo normalizamos saltos de línea a espacios, pero NO hacemos trim de bordes
+			// para no pegar palabras ("The " + "stock" -> "The stock").
+			seqContent := strings.ReplaceAll(rawContent, "\n", " ")
+			seqContent = strings.ReplaceAll(seqContent, "\t", " ")
+			// Opcional: Colapsar múltiples espacios a uno solo si se desea muy limpio
+			// pero para mixed content, preservar 1 espacio es clave.
+			if strings.TrimSpace(seqContent) == "" {
+				seqContent = "" // Si era solo indentación, lo ignoramos para no ensuciar
+			}
+
+			// Decisión de si procesamos este nodo (si tiene contenido útil)
+			if textContent != "" || seqContent != "" {
 				current := stack[len(stack)-1]
-				if val, exists := current.data["#text"]; exists {
-					current.data["#text"] = val.(string) + content
-				} else {
-					current.data["#text"] = content
+
+				// A. Guardamos en #text (Versión Limpia/Trimmed)
+				if textContent != "" {
+					if val, exists := current.data["#text"]; exists {
+						// Nota: Al concatenar #text legacy, agregamos un espacio por seguridad
+						// ya que estamos uniendo fragmentos distantes.
+						current.data["#text"] = val.(string) + textContent
+					} else {
+						current.data["#text"] = textContent
+					}
+				}
+
+				// B. Guardamos en #seq (Versión Original/Spaced)
+				// Esta es la que usa la función Text() y ExampleText
+				if seqContent != "" {
+					if seq, ok := current.data["#seq"].([]any); ok {
+						current.data["#seq"] = append(seq, seqContent)
+					} else {
+						current.data["#seq"] = []any{seqContent}
+					}
 				}
 			}
+
 		case xml.Comment:
 			content := string(se)
 			current := stack[len(stack)-1]
@@ -144,18 +228,31 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 			}
 
 		case xml.EndElement:
+			// Pop from stack
 			childNode := stack[len(stack)-1]
 			stack = stack[:len(stack)-1]
 			parent := stack[len(stack)-1]
 			tagName := childNode.tagName
 
 			var finalValue any = childNode.data
+
+			// 4. NODE SIMPLIFICATION
+			// If the node only contains text (and the redundant sequence), simplify it to a string.
 			if len(childNode.data) == 1 {
+				// Case: Only #text
 				if val, ok := childNode.data["#text"]; ok {
 					finalValue = processValue(val.(string), tagName, cfg)
 				}
+			} else if len(childNode.data) == 2 {
+				// Case: #text AND #seq (redundant because there are no child tags)
+				_, hasText := childNode.data["#text"]
+				_, hasSeq := childNode.data["#seq"]
+				if hasText && hasSeq {
+					finalValue = processValue(childNode.data["#text"].(string), tagName, cfg)
+				}
 			}
 
+			// 5. ASSIGN TO PARENT (Map Structure)
 			existingValue, exists := parent.data[tagName]
 			if !exists {
 				if cfg.forceArrayKeys[tagName] {
@@ -169,6 +266,33 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 				} else {
 					parent.data[tagName] = []any{existingValue, finalValue}
 				}
+			}
+
+			// 6. ASSIGN TO PARENT SEQUENCE (Ordered Structure)
+			// This is the key to supporting "Mixed Content". The parent knows exactly
+			// when this child appeared relative to text nodes.
+			if seq, ok := parent.data["#seq"].([]any); ok {
+				parent.data["#seq"] = append(seq, finalValue)
+			} else {
+				parent.data["#seq"] = []any{finalValue}
+			}
+
+		case xml.ProcInst:
+			current := stack[len(stack)-1]
+			piContent := fmt.Sprintf("target=%s data=%s", se.Target, string(se.Inst))
+			if list, exists := current.data["#pi"]; exists {
+				current.data["#pi"] = append(list.([]string), piContent)
+			} else {
+				current.data["#pi"] = []string{piContent}
+			}
+
+		case xml.Directive:
+			current := stack[len(stack)-1]
+			directive := string(se)
+			if list, exists := current.data["#directive"]; exists {
+				current.data["#directive"] = append(list.([]string), directive)
+			} else {
+				current.data["#directive"] = []string{directive}
 			}
 		}
 	}
