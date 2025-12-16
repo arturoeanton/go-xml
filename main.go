@@ -26,7 +26,8 @@ func main() {
 
 	// 3. Ayuda por defecto
 	fmt.Println("r2/xml CLI")
-	fmt.Println("Uso:")
-	fmt.Println("  --demo [name]   : Ejecuta demos (basic, stream_r, hooks, etc)")
-	fmt.Println("  query \"path\"    : Ejecuta consulta (Sintaxis tipo XPath) sobre stdin")
+	fmt.Println("Usage:")
+	fmt.Println("  --demo [name]   : Run demos (basic, stream_r, hooks, legacy, json, etc)")
+	fmt.Println("  --json [file]   : Convert XML from File/Stdin to JSON Stdout")
+	fmt.Println("  query \"path\"    : Execute query (XPath-like) on Stdin")
 }
