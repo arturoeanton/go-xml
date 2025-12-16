@@ -159,7 +159,15 @@ if len(errors) > 0 {
 }
 ```
 
-### 7. Soporte de Charsets Legados (ISO-8859-1 / Windows-1252)
+### 7. Exportación JSON en una línea
+Convierte XML directamente a JSON en un solo paso (útil para APIs).
+
+```go
+jsonBytes, _ := xml.ToJSON(r)
+fmt.Println(string(jsonBytes))
+```
+
+### 8. Soporte de Charsets Legados (ISO-8859-1 / Windows-1252)
 El parser maneja UTF-8 automáticamente. Para sistemas legados (bancos, gobierno) que envían ISO-8859-1 o Windows-1252, usa `EnableLegacyCharsets()`.
 
 ```go
