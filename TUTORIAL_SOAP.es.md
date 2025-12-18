@@ -45,26 +45,42 @@ func main() {
         "intB": 20,
     }
 
-    // "Add" se convierte en "<m:Add>...</m:Add>"
+    // "Add" se convierte en "<m:Add>...</m:Add>" automáticamente.
     resp, err := client.Call("Add", payload)
     if err != nil {
         panic(err)
     }
-
-    // Estructura de Respuesta:
-    // <Envelope>
-    //   <Body>
-    //     <AddResponse>
-    //       <AddResult>30</AddResult>
-    //     </AddResponse>
-    // ...
     
-    result, _ := xml.Query(resp, "Envelope/Body/AddResponse/AddResult")
+    // Extracción de Datos
+    // Opción A: Ruta Completa
+    // result, _ := xml.Query(resp, "Envelope/Body/AddResponse/AddResult")
+    
+    // Opción B: Búsqueda Profunda (Más fácil)
+    result, _ := xml.Query(resp, "//AddResult")
     fmt.Printf("Resultado: %v\n", result) 
 }
 ```
 
-## 4. Autenticación
+## 4. Opciones Avanzadas
+
+### Headers Custom
+Puedes inyectar headers HTTP personalizados (ej: para trazabilidad o medidas anti-bot).
+
+```go
+client := xml.NewSoapClient(url, ns, 
+    xml.WithHeader("X-Correlation-ID", "12345"),
+    xml.WithHeader("User-Agent", "MySoapClient/1.0"),
+)
+```
+
+### Timeouts
+Configura un tiempo de espera personalizado para el cliente HTTP subyacente.
+
+```go
+client := xml.NewSoapClient(url, ns, xml.WithTimeout(10 * time.Second))
+```
+
+## 5. Autenticación
 
 ### Basic Auth
 ```go
@@ -78,7 +94,7 @@ Añade el header estándar `wsse:Security` para el perfil UsernameToken.
 client := xml.NewSoapClient(url, ns, xml.WithWSSecurity("user", "secret"))
 ```
 
-## 5. Manejo de Errores (SOAP Faults)
+## 6. Manejo de Errores (SOAP Faults)
 
 Si el servidor retorna un SOAP Fault (ej: 500 Internal Server Error con cuerpo XML), `Call` retorna un error conteniendo el string del fallo.
 

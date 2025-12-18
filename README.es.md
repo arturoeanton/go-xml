@@ -200,6 +200,7 @@ client := xml.NewSoapClient(
     "http://example.com/soap", 
     "http://tempuri.org/", 
     xml.WithBasicAuth("user", "pass"),
+    xml.WithHeader("X-Custom-Header", "Valor"), // Nuevo en v1.2+
 )
 
 // 2. Llamar Acción
@@ -214,6 +215,7 @@ name, _ := xml.Query(resp, "Envelope/Body/GetUserResponse/User/Name")
 
 Soporta:
 - **Auth**: Basic, Bearer, WS-Security (UsernameToken).
+- **Opciones**: Headers Custom (`WithHeader`), Timeout (`WithTimeout`).
 - **Faults**: Parsea automáticamente `soap:Fault` en errores de Go.
 
 ## 🛠 Herramienta CLI
