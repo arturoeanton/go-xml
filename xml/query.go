@@ -77,6 +77,27 @@ func QueryAll(data any, path string) ([]any, error) {
 						for _, k := range keys {
 							valuesToProcess = append(valuesToProcess, m[k])
 						}
+					} else if strings.HasPrefix(key, "func:") {
+						// Custom Function Strategy
+						funcName := strings.TrimPrefix(key, "func:")
+						if fn, ok := getQueryFunction(funcName); ok {
+							var keys []string
+							for k := range m {
+								// Standard behavior: skip attributes/metadata unless user explicitly asks?
+								// Let's pass CLEAN keys to the function? Or all keys?
+								// Ideally, we follow wildcard logic: filter out @ and # automatically first,
+								// THEN apply the custom function to the "content" node names.
+								if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+									if fn(k) {
+										keys = append(keys, k)
+									}
+								}
+							}
+							sort.Strings(keys)
+							for _, k := range keys {
+								valuesToProcess = append(valuesToProcess, m[k])
+							}
+						}
 					} else {
 						// Direct Key Strategy
 						if val, exists := m[key]; exists {
