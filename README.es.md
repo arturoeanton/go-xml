@@ -11,6 +11,9 @@
     *   **Encoder**: Escribe XML directamente a un `io.Writer` para procesamiento eficiente en tuberías.
 *   **Robusto y Permisivo**: Capaz de leer HTML/XML "sopa" (tags sin cerrar como `<br>`, `<meta>`) con modo permisivo. Usa `EnableExperimental()` para activar el Modo Soup (sanitización automática de `<script>`, normalización a minúsculas y soporte de tags HTML vacíos).
 *   **Consultas Avanzadas**: Utilidades de consulta profunda estilo XPath (ej: `users/user[0]/name`).
+    *   **XPath-Lite**: Soporte para búsqueda profunda `//nodo`, operadores `[price>10]`, y funciones `[contains(name,'Go')]`.
+    *   **Wildcards**: Itera sobre claves dinámicas con `*`.
+    *   **Funciones Personalizadas**: Registra tus propias funciones Go para filtrar claves (`func:isNumeric`).
 *   **Motor de Validación**: Define reglas de negocio para tus datos (Regex, Rango, Enum, Tipo).
 *   **Atributos como Datos**: Los atributos son tratados como ciudadanos de primera clase, accesibles mediante una convención de prefijo `@`.
 *   **Namespaces Helpers**: Registra alias para trabajar con claves cortas en lugar de URLs completas.

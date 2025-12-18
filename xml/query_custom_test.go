@@ -3,12 +3,17 @@ package xml
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 )
 
 func TestQuery_CustomFunction(t *testing.T) {
 	// Note: Standard library functions are registered in init() in features_query.go
 
+	// 0. User Defined (Existing)
+	RegisterQueryFunction("startsWithBox", func(key string) bool {
+		return strings.HasPrefix(key, "box")
+	})
 	data := map[string]any{
 		"invoice": map[string]any{
 			"items": map[string]any{

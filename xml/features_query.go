@@ -32,10 +32,6 @@ func getQueryFunction(name string) (QueryFunction, bool) {
 }
 
 func init() {
-	// 0. User Defined (Existing)
-	RegisterQueryFunction("startsWithBox", func(key string) bool {
-		return strings.HasPrefix(key, "box")
-	})
 
 	// 1. isNumeric: Checks if the key contains only digits.
 	// Usage: path/to/func:isNumeric/child

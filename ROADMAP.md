@@ -6,11 +6,10 @@ This document details missing functionalities and planned improvements for the p
 
 
 
-### 3. Wildcard Support in Query
-**Impact: High** | **Complexity: Medium**
+### 3. Wildcard Support in Query [COMPLETED]
+**Impact: COMPLETED** | **Complexity: COMPLETED**
 
-Navigating dynamic lists where keys are unknown is currently difficult (requires manual iteration).
-- **Need**: Support `*` wildcard in `Query` paths, e.g., `invoice/items/*/sku` to get all SKUs regardless of the wrapper tag.
+*Implemented in v1.1*: Supports `*` wildcard in `Query` paths, e.g., `invoice/items/*/sku`.
 
 ## 🔮 Medium Priority (Strategic Features)
 
@@ -28,11 +27,18 @@ Although the philosophy is "no structs", sometimes migration or interoperability
 
 ## 🧊 Low Priority / Future (High Complexity / Niche)
 
-### 6. Full XPath 1.0 Support
+### 6. Full XPath 1.0 Support [PARTIALLY COMPLETED]
 **Impact: Medium** | **Complexity: High**
 
-Current `Query` system is sufficient for 90% of cases. Full XPath 1.0 implies supporting axes (`following-sibling`, `ancestor`) and functions (`count()`, `contains()`).
-- **Need**: Wait for user demand before implementing a full engine.
+*Update v1.1*: Implemented "XPath-Lite" covering common use-cases:
+- Deep Search (`//node`)
+- Operators (`>`, `<`, `!=`) inside filters.
+- Functions (`contains()`, `starts-with()`).
+- Aggregation (`#count`).
+- Wildcards (`*`).
+- Custom Functions registry (`items/func:myFunc/id`).
+
+Full XPath axes (`following-sibling`, `ancestor`) are deferred until demanded.
 
 ### 7. XSD Validation (Schema)
 **Impact: Medium** | **Complexity: Very High**

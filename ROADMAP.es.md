@@ -6,11 +6,10 @@ Este documento detalla las funcionalidades faltantes y mejoras planificadas para
 
 
 
-### 3. Soporte de Wildcards en Query
-**Impacto: Alto** | **Complejidad: Media**
+### 3. Soporte de Wildcards en Query [COMPLETADO]
+**Impacto: COMPLETADO** | **Complejidad: COMPLETADO**
 
-Navegar listas dinámicas donde las claves son desconocidas es difícil actualmente (requiere iteración manual).
-- **Necesidad**: Soportar el comodín `*` en rutas de `Query`, ej: `invoice/items/*/sku` para obtener todos los SKUs sin importar el tag contenedor.
+*Implementado en v1.1*: Soporta comodín `*` en rutas `Query`, ej: `invoice/items/*/sku`.
 
 ## 🔮 Media Prioridad (Funcionalidades Estratégicas)
 
@@ -28,11 +27,18 @@ Aunque la filosofía es "no usar structs", a veces la migración o interoperabil
 
 ## 🧊 Baja Prioridad / Futuro (Alta Complejidad / Nicho)
 
-### 6. Soporte XPath 1.0 Completo
+### 6. Soporte XPath 1.0 Completo [PARCIALMENTE COMPLETADO]
 **Impacto: Medio** | **Complejidad: Alta**
 
-El sistema actual de `Query` es suficiente para el 90% de los casos. XPath 1.0 completo implica soportar ejes (`following-sibling`, `ancestor`) y funciones (`count()`, `contains()`).
-- **Necesidad**: Esperar demanda de usuarios antes de implementar un motor completo.
+*Actualización v1.1*: Implementado "XPath-Lite" cubriendo casos de uso comunes:
+- Búsqueda Profunda (`//nodo`).
+- Operadores (`>`, `<`, `!=`) dentro de filtros.
+- Funciones (`contains()`, `starts-with()`).
+- Agregación (`#count`).
+- Wildcards (`*`).
+- Registro de Funciones Personalizadas (`items/func:miFunc/id`).
+
+Ejes completos de XPath como `following-sibling` se posponen hasta nueva demanda.
 
 ### 7. Validación contra XSD (Schema)
 **Impacto: Medio** | **Complejidad: Muy Alta**
