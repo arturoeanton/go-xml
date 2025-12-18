@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -38,6 +39,8 @@ var demoRegistry = map[string]func(){
 	// v3.0 - Utilities & Legacy
 	"legacy": demo_v3_LegacyCharsets,
 	"json":   demo_v3_JSONConversion,
+
+	"soap": demo_soap,
 }
 
 // RunDemos: El orquestador que llama el main()
@@ -331,4 +334,78 @@ func demo_v3_JSONConversion() {
 
 	fmt.Printf("XML Input: %s\n", xmlData)
 	fmt.Printf("JSON Output: %s\n", string(jsonBytes))
+}
+
+func demo_soap() {
+	// 1. Configure the Client
+	// Real public service (DataFlex Web Service for Country Info)
+	// WSDL: http://webservices.oorsprong.org/websamples.countryinfo/CountryInfoService.wso?WSDL
+
+	// NOTA: Este servicio es estricto con las URLs.
+	endpoint := "http://webservices.oorsprong.org/websamples.countryinfo/CountryInfoService.wso"
+
+	// El Namespace exacto definido en su WSDL para el body
+	namespace := "http://www.oorsprong.org/websamples.countryinfo"
+
+	// Opcional: Configurar el Header SOAPAction base (aunque este cliente lo deduce si es estándar)
+	client := xml.NewSoapClient(endpoint, namespace)
+
+	fmt.Println("=== Demo: Dynamic SOAP Client (Real Service) ===")
+
+	// ---------------------------------------------------------
+	// Call 1: ListOfContinentsByName
+	// ---------------------------------------------------------
+	fmt.Println("\n1. Calling ListOfContinentsByName...")
+
+	// Este servicio no requiere parámetros para esta llamada
+	resp, err := client.Call("ListOfContinentsByName", nil)
+	if err != nil {
+		log.Fatalf("Error calling ListOfContinentsByName: %v", err)
+	}
+
+	// Dynamic Parsing
+	// El servicio real devuelve:
+	// <m:ListOfContinentsByNameResponse>
+	//   <m:ListOfContinentsByNameResult>
+	//     <m:tContinent>
+	//       <m:sCode>AF</m:sCode>
+	//       <m:sName>Africa</m:sName>
+	//     </m:tContinent>
+	//     ...
+	continents, _ := xml.QueryAll(resp, "//tContinent")
+	fmt.Printf("Found %d continents:\n", len(continents))
+
+	for _, c := range continents {
+		if cMap, ok := c.(map[string]any); ok {
+			// Usamos xml.String helper si lo implementaste, o Query normal
+			code, _ := xml.Query(cMap, "sCode")
+			name, _ := xml.Query(cMap, "sName")
+			fmt.Printf(" - %v: %v\n", code, name)
+		}
+	}
+
+	// ---------------------------------------------------------
+	// Call 2: FullCountryInfo (Probemos algo con parámetros)
+	// ---------------------------------------------------------
+	fmt.Println("\n2. Calling FullCountryInfo (Code: AR)...")
+
+	payload := map[string]any{
+		"sCountryISOCode": "AR", // Argentina
+	}
+
+	resp2, err := client.Call("FullCountryInfo", payload)
+	if err != nil {
+		log.Printf("Error calling FullCountryInfo: %v", err)
+	} else {
+		// La respuesta está anidada en FullCountryInfoResult
+		name, _ := xml.Query(resp2, "//sName")
+		capital, _ := xml.Query(resp2, "//sCapitalCity")
+		currency, _ := xml.Query(resp2, "//sCurrencyISOCode")
+		flag, _ := xml.Query(resp2, "//sCountryFlag")
+
+		fmt.Printf("Country: %v\n", name)
+		fmt.Printf("Capital: %v\n", capital)
+		fmt.Printf("Currency: %v\n", currency)
+		fmt.Printf("Flag URL: %v\n", flag)
+	}
 }
