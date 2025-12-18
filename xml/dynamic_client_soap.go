@@ -8,85 +8,77 @@ import (
 	"time"
 )
 
-// AuthType defines the authentication method used by the SoapClient.
-type AuthType int
-
+// Tipos de Autenticación
 const (
-	AuthNone AuthType = iota
-	AuthBasic
-	AuthBearer
-	AuthWSSecurity
+	AuthNone       = ""
+	AuthBasic      = "Basic"
+	AuthBearer     = "Bearer"
+	AuthWSSecurity = "WSSecurity"
 )
 
-// SoapClient is a dynamic client for consuming SOAP services without structs.
+// SoapClient permite llamadas dinámicas a servicios SOAP sin structs.
 type SoapClient struct {
 	EndpointURL    string
 	Namespace      string
 	HttpClient     *http.Client
-	SoapActionBase string // Optional: Overrides Namespace for SOAPAction header generation
+	SoapActionBase string
+	Headers        map[string]string
 
-	// Authentication
-	AuthType     AuthType
+	// Configuración de Auth
+	AuthType     string
 	AuthUsername string
 	AuthPassword string
 	AuthToken    string
 }
 
-// ClientOption allows configuring the SoapClient (e.g., custom timeout).
+// ClientOption para configuración funcional.
 type ClientOption func(*SoapClient)
 
-// WithTimeout sets a custom timeout for the HTTP client.
-func WithTimeout(timeout time.Duration) ClientOption {
-	return func(c *SoapClient) {
-		c.HttpClient.Timeout = timeout
-	}
+func WithTimeout(d time.Duration) ClientOption {
+	return func(s *SoapClient) { s.HttpClient.Timeout = d }
 }
 
-// WithSoapActionBase sets a custom base URL for the SOAPAction header.
-// Useful when the SOAPAction URL differs from the XML Namespace.
+func WithHeader(key, value string) ClientOption {
+	return func(s *SoapClient) { s.Headers[key] = value }
+}
+
 func WithSoapActionBase(base string) ClientOption {
-	return func(c *SoapClient) {
-		c.SoapActionBase = base
+	return func(s *SoapClient) { s.SoapActionBase = base }
+}
+
+// --- Auth Options ---
+
+func WithBasicAuth(user, pass string) ClientOption {
+	return func(s *SoapClient) {
+		s.AuthType = AuthBasic
+		s.AuthUsername = user
+		s.AuthPassword = pass
 	}
 }
 
-// WithBasicAuth enables HTTP Basic Authentication.
-func WithBasicAuth(username, password string) ClientOption {
-	return func(c *SoapClient) {
-		c.AuthType = AuthBasic
-		c.AuthUsername = username
-		c.AuthPassword = password
-	}
-}
-
-// WithBearerToken enables HTTP Bearer Token Authentication.
 func WithBearerToken(token string) ClientOption {
-	return func(c *SoapClient) {
-		c.AuthType = AuthBearer
-		c.AuthToken = token
+	return func(s *SoapClient) {
+		s.AuthType = AuthBearer
+		s.AuthToken = token
 	}
 }
 
-// WithWSSecurity enables WS-Security UsernameToken Profile.
-// Injects a soap:Header with wsse:Security into the request.
-func WithWSSecurity(username, password string) ClientOption {
-	return func(c *SoapClient) {
-		c.AuthType = AuthWSSecurity
-		c.AuthUsername = username
-		c.AuthPassword = password
+func WithWSSecurity(user, pass string) ClientOption {
+	return func(s *SoapClient) {
+		s.AuthType = AuthWSSecurity
+		s.AuthUsername = user
+		s.AuthPassword = pass
 	}
 }
 
-// NewSoapClient creates a new instance of SoapClient.
-// endpoint: The full URL of the SOAP service.
-// namespace: The XML namespace of the service specific method (usually "http://tempuri.org/" or similar).
+// NewSoapClient crea un nuevo cliente.
 func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient {
 	client := &SoapClient{
 		EndpointURL: endpoint,
 		Namespace:   namespace,
-		HttpClient: &http.Client{
-			Timeout: 30 * time.Second, // Default timeout
-		},
+		HttpClient:  &http.Client{Timeout: 30 * time.Second},
+		Headers:     make(map[string]string), // IMPORTANTE: Inicializar mapa
+		AuthType:    AuthNone,
 	}
 	for _, opt := range opts {
 		opt(client)
@@ -94,21 +86,25 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 	return client
 }
 
-// Call executes a SOAP Action.
-// action: The name of the method to call (e.g., "GetUser").
-// payload: The content map to be placed inside the method key.
-// Returns a map representing the parsed SOAP response body.
+// Call ejecuta una acción SOAP.
 func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any, error) {
-	// 1. Build the SOAP Envelope
+	// 1. Preparar el Payload
+	// Definimos el xmlns en el nodo de acción para que los hijos lo hereden.
+	actionNode := make(map[string]any)
+	actionNode["@xmlns"] = c.Namespace
+	for k, v := range payload {
+		actionNode[k] = v
+	}
+
+	// 2. Construir Envelope Base
 	envelopeMap := map[string]any{
 		"@xmlns:soap": "http://schemas.xmlsoap.org/soap/envelope/",
-		"@xmlns:m":    c.Namespace,
 		"soap:Body": map[string]any{
-			"m:" + action: payload,
+			action: actionNode, // <Action xmlns="...">...</Action>
 		},
 	}
 
-	// Inject WS-Security Header if needed
+	// 3. Inyectar WS-Security (Si aplica)
 	if c.AuthType == AuthWSSecurity {
 		envelopeMap["soap:Header"] = map[string]any{
 			"wsse:Security": map[string]any{
@@ -128,22 +124,24 @@ func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any
 		"soap:Envelope": envelopeMap,
 	}
 
-	// 2. Encode to XML
+	// 4. Encode
 	var buf bytes.Buffer
-	enc := NewEncoder(&buf) // Assumes NewEncoder exists in package xml
+	enc := NewEncoder(&buf)
 	if err := enc.Encode(envelope); err != nil {
 		return nil, fmt.Errorf("failed to encode SOAP request: %w", err)
 	}
 
-	// 3. Create HTTP Request
+	// 5. Create Request
 	req, err := http.NewRequest("POST", c.EndpointURL, &buf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	// Headers Base
 	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+	req.Header.Set("User-Agent", "r2-xml-client/1.0") // Anti-bloqueo
 
-	// Handle Authentication Headers
+	// Auth Headers (HTTP Level)
 	switch c.AuthType {
 	case AuthBasic:
 		req.SetBasicAuth(c.AuthUsername, c.AuthPassword)
@@ -151,45 +149,43 @@ func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any
 		req.Header.Set("Authorization", "Bearer "+c.AuthToken)
 	}
 
-	// SOAPAction Header
-	soapActionHeader := action
-	// Determine base for SOAPAction
+	// Custom Headers
+	for k, v := range c.Headers {
+		req.Header.Set(k, v)
+	}
+
+	// 6. SOAPAction Logic (Estricto)
 	base := c.Namespace
 	if c.SoapActionBase != "" {
 		base = c.SoapActionBase
 	}
 
-	if base != "" && !strings.Contains(action, "/") {
-		// e.g. "http://tempuri.org/Action"
-		trimNs := strings.TrimSuffix(base, "/")
-		soapActionHeader = fmt.Sprintf("%s/%s", trimNs, action)
-	}
+	// Limpieza de slashes dobles
+	cleanBase := strings.TrimSuffix(base, "/")
+	cleanAction := strings.TrimPrefix(action, "/")
+
+	// El estándar requiere comillas dobles alrededor de la URL
+	soapActionHeader := fmt.Sprintf("\"%s/%s\"", cleanBase, cleanAction)
 	req.Header.Set("SOAPAction", soapActionHeader)
 
-	// 4. Send Request
+	// 7. Send
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("soap call network error: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// 5. Parse Response
-	// Even if status != 200, we might receive a SOAP Fault XML.
+	// 8. Parse
 	respMap, err := MapXML(resp.Body)
 	if err != nil {
-		// If we can't parse the XML even on error, return distinct error
 		return nil, fmt.Errorf("failed to parse response (status %d): %w", resp.StatusCode, err)
 	}
 
-	// 6. Handle HTTP Errors / SOAP Faults
+	// 9. Fault Handling
 	if resp.StatusCode != http.StatusOK {
-		// Attempt to extract Fault string
-		// Standard SOAP 1.1 Fault: Envelope/Body/Fault
 		if fault, _ := Query(respMap, "Envelope/Body/Fault"); fault != nil {
 			if fMap, ok := fault.(map[string]any); ok {
-				faultCode := fMap["faultcode"]
-				faultString := fMap["faultstring"]
-				return nil, fmt.Errorf("SOAP Fault %d: [%v] %v", resp.StatusCode, faultCode, faultString)
+				return nil, fmt.Errorf("SOAP Fault %d: [%v] %v", resp.StatusCode, fMap["faultcode"], fMap["faultstring"])
 			}
 		}
 		return nil, fmt.Errorf("http error %d", resp.StatusCode)
