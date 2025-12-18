@@ -11,6 +11,9 @@
     *   **Encoder**: Write XML directly to an `io.Writer` for high-efficiency pipeline processing.
 *   **Robust & Lenient**: Capable of reading "soup" HTML/XML (unclosed tags like `<br>`, `<meta>`) with lenient mode. Use `EnableExperimental()` to activate Soup Mode (automatic sanitization of `<script>` tags, lowercase normalization, and HTML void tag support).
 *   **Advanced Querying**: XPath-style deep querying utilities (e.g., `users/user[0]/name`).
+    *   **XPath-Lite**: Support for `//deep/search`, operators `[price>10]`, and functions `[contains(name,'Go')]`.
+    *   **Wildcards**: Iterate over dynamic map keys with `*`.
+    *   **Custom Functions**: Register your own Go functions to filter keys dynamically (`func:isNumeric`).
 *   **Validation Engine**: Define business rules for your data (Regex, Range, Enum, Type).
 *   **Attributes as Data**: Attributes are treated as first-class citizens, accessible via a simple `@` prefix convention.
 *   **Namespaces Helpers**: Register aliases to work with short keys instead of full URLs.

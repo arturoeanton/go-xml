@@ -14,7 +14,7 @@ func Set(data map[string]any, path string, value any) error {
 
 	for i, part := range parts {
 		isLast := i == len(parts)-1
-		key, _, _, idx := parseSegment(part) // Reuse logic from main.go/query.go
+		key, _, idx := parseSegment(part) // Reuse logic from main.go/query.go
 
 		// 1. Current node must be a map to lookup the 'key'
 		m, ok := current.(map[string]any)
@@ -73,7 +73,7 @@ func Delete(data map[string]any, path string) error {
 
 	for i := 0; i < lastIdx; i++ {
 		part := parts[i]
-		key, _, _, idx := parseSegment(part)
+		key, _, idx := parseSegment(part)
 
 		// Current must be a map
 		m, ok := current.(map[string]any)
@@ -108,7 +108,7 @@ func Delete(data map[string]any, path string) error {
 
 	// 2. Execute Deletion on the last segment
 	targetPart := parts[lastIdx]
-	key, _, _, idx := parseSegment(targetPart)
+	key, _, idx := parseSegment(targetPart)
 
 	// The 'current' is the container map
 	parentMap, ok := current.(map[string]any)

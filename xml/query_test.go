@@ -72,10 +72,16 @@ func TestParseSegment(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		k, fk, fv, idx := parseSegment(tt.input)
-		if k != tt.wantKey || fk != tt.wantFKey || fv != tt.wantFVal || idx != tt.wantIdx {
+		k, fp, idx := parseSegment(tt.input)
+		// Map legacy expectations to new struct
+		gotFKey, gotFVal := "", ""
+		if fp != nil {
+			gotFKey = fp.Key
+			gotFVal = fp.Val
+		}
+		if k != tt.wantKey || gotFKey != tt.wantFKey || gotFVal != tt.wantFVal || idx != tt.wantIdx {
 			t.Errorf("parseSegment(%q) = (%q, %q, %q, %d); want (%q, %q, %q, %d)",
-				tt.input, k, fk, fv, idx, tt.wantKey, tt.wantFKey, tt.wantFVal, tt.wantIdx)
+				tt.input, k, gotFKey, gotFVal, idx, tt.wantKey, tt.wantFKey, tt.wantFVal, tt.wantIdx)
 		}
 	}
 }
