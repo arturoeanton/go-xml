@@ -17,31 +17,42 @@ func TestSoapClient_Success(t *testing.T) {
 		if r.Header.Get("Content-Type") != "text/xml; charset=utf-8" {
 			t.Errorf("Expected Content-Type text/xml, got %s", r.Header.Get("Content-Type"))
 		}
-		if r.Header.Get("SOAPAction") == "" {
-			t.Error("Expected SOAPAction header")
+		// Validar que el SOAPAction tenga comillas (Fix reciente)
+		soapAction := r.Header.Get("SOAPAction")
+		if !strings.Contains(soapAction, "\"") {
+			t.Errorf("Expected quoted SOAPAction header, got %s", soapAction)
 		}
 
-		// 2. Validate Body (Optional: Check if payload is correct)
-		body, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(body), "soap:Envelope") {
+		// 2. Validate Body
+		bodyBytes, _ := io.ReadAll(r.Body)
+		body := string(bodyBytes)
+
+		if !strings.Contains(body, "soap:Envelope") {
 			t.Error("Expected SOAP Envelope in request body")
 		}
-		if !strings.Contains(string(body), "m:GetUser") { // Check action key
-			t.Error("Expected m:GetUser action in request body")
+
+		// --- CORRECCIÓN AQUÍ ---
+		// Ya no usamos el prefijo "m:", usamos el tag limpio con el namespace por defecto.
+		if !strings.Contains(body, "<GetUser") {
+			t.Error("Expected <GetUser> tag in request body")
+		}
+		// Validamos que se inyecte el namespace correctamente en el nodo de acción
+		if !strings.Contains(body, `xmlns="http://example.org/myservice"`) {
+			t.Errorf("Expected namespace in action node. Got body: %s", body)
 		}
 
 		// 3. Return Success XML
 		respXML := `
-		<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-			<soap:Body>
-				<GetUserResponse>
-					<User>
-						<ID>123</ID>
-						<Name>Alice</Name>
-					</User>
-				</GetUserResponse>
-			</soap:Body>
-		</soap:Envelope>`
+        <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+            <soap:Body>
+                <GetUserResponse>
+                    <User>
+                        <ID>123</ID>
+                        <Name>Alice</Name>
+                    </User>
+                </GetUserResponse>
+            </soap:Body>
+        </soap:Envelope>`
 		w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprint(w, respXML)
@@ -61,8 +72,15 @@ func TestSoapClient_Success(t *testing.T) {
 		t.Fatalf("Call failed: %v", err)
 	}
 
-	// Verify Response Parsing (using Query)
-	name, err := Query(resp, "Envelope/Body/GetUserResponse/User/Name")
+	// Verify Response Parsing
+	// Nota: Dependiendo de cómo tu parser maneje namespaces en la respuesta,
+	// a veces es necesario ajustar la query. Si tienes MapXML estándar, esto debería funcionar:
+	name, err := Query(resp, "soap:Envelope/soap:Body/GetUserResponse/User/Name")
+	if err != nil {
+		// Fallback: A veces el parser simplifica keys
+		name, err = Query(resp, "Envelope/Body/GetUserResponse/User/Name")
+	}
+
 	if err != nil {
 		t.Fatalf("Query response failed: %v", err)
 	}

@@ -40,7 +40,8 @@ var demoRegistry = map[string]func(){
 	"legacy": demo_v3_LegacyCharsets,
 	"json":   demo_v3_JSONConversion,
 
-	"soap": demo_soap,
+	"soap":  demo_soap,
+	"soap2": demo_soap2,
 }
 
 // RunDemos: El orquestador que llama el main()
@@ -408,4 +409,34 @@ func demo_soap() {
 		fmt.Printf("Currency: %v\n", currency)
 		fmt.Printf("Flag URL: %v\n", flag)
 	}
+}
+
+func demo_soap2() {
+	client := xml.NewSoapClient("http://www.dneonline.com/calculator.asmx", "http://tempuri.org/")
+
+	// Construir Carga
+	// El Envelope y Body se manejan automáticamente.
+	// Solo provees el contenido dentro del tag de la Acción.
+	payload := map[string]any{
+		"intA": 10,
+		"intB": 20,
+	}
+
+	// "Add" se convierte en "<m:Add>...</m:Add>"
+	resp, err := client.Call("Add", payload)
+	if err != nil {
+		panic(err)
+	}
+
+	// Estructura de Respuesta:
+	// <Envelope>
+	//   <Body>
+	//     <AddResponse>
+	//       <AddResult>30</AddResult>
+	//     </AddResponse>
+	// ...
+
+	//fmt.Println("Respuesta:", resp)
+	result, _ := xml.Query(resp, "Envelope/Body/AddResponse/AddResult")
+	fmt.Printf("Resultado: %v\n", result)
 }
