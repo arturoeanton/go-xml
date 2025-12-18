@@ -418,25 +418,18 @@ func demo_soap2() {
 	// El Envelope y Body se manejan automáticamente.
 	// Solo provees el contenido dentro del tag de la Acción.
 	payload := map[string]any{
-		"intA": 10,
+		"intA": 60,
 		"intB": 20,
 	}
 
-	// "Add" se convierte en "<m:Add>...</m:Add>"
-	resp, err := client.Call("Add", payload)
-	if err != nil {
-		panic(err)
+	methods := []string{"Add", "Subtract", "Multiply", "Divide"}
+
+	for _, method := range methods {
+		resp, err := client.Call(method, payload)
+		if err != nil {
+			panic(err)
+		}
+		result, _ := xml.Query(resp, "//"+method+"Result")
+		fmt.Printf("Resultado %s: %v\n", method, result)
 	}
-
-	// Estructura de Respuesta:
-	// <Envelope>
-	//   <Body>
-	//     <AddResponse>
-	//       <AddResult>30</AddResult>
-	//     </AddResponse>
-	// ...
-
-	//fmt.Println("Respuesta:", resp)
-	result, _ := xml.Query(resp, "Envelope/Body/AddResponse/AddResult")
-	fmt.Printf("Resultado: %v\n", result)
 }
