@@ -191,6 +191,31 @@ m, err := xml.MapXML(r, xml.EnableLegacyCharsets())
 // The parser automatically uses the correct charset reader
 ```
 
+### 10. Dynamic SOAP Client
+*New in v1.2*: Consume SOAP 1.1 services dynamically without generating structs.
+
+```go
+// 1. Create Client
+client := xml.NewSoapClient(
+    "http://example.com/soap", 
+    "http://tempuri.org/", 
+    xml.WithBasicAuth("user", "pass"),
+)
+
+// 2. Call Action
+// <m:GetUser><id>123</id></m:GetUser>
+resp, err := client.Call("GetUser", map[string]any{
+    "id": 123,
+})
+
+// 3. Access Data
+name, _ := xml.Query(resp, "Envelope/Body/GetUserResponse/User/Name")
+```
+
+Supports:
+- **Auth**: Basic, Bearer, WS-Security (UsernameToken).
+- **Faults**: Automatically parses `soap:Fault` into Go errors.
+
 ## 🛠 CLI Tool
 You can use the `main.go` as a standalone CLI tool to query XML files from the terminal.
 

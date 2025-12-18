@@ -11,6 +11,11 @@ This document details missing functionalities and planned improvements for the p
 
 *Implemented in v1.1*: Supports `*` wildcard in `Query` paths, e.g., `invoice/items/*/sku`.
 
+### 10. Dynamic SOAP Client [COMPLETED]
+**Impact: High** | **Complexity: High**
+
+*Implemented in v1.2*: Full support for dynamic SOAP 1.1 calls, auth (Basic/Bearer/WSS), and Fault handling. No structs required.
+
 ## 🔮 Medium Priority (Strategic Features)
 
 ### 4. Raw Node Extraction (Canonicalization)
