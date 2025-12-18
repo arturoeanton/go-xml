@@ -1,6 +1,7 @@
 package xml
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -100,4 +101,65 @@ func TestSoapClient_Fault(t *testing.T) {
 	if err.Error() != wantErr {
 		t.Errorf("Error = %q, want %q", err.Error(), wantErr)
 	}
+}
+
+func TestSoapClient_Auth(t *testing.T) {
+	// 1. Basic Auth
+	t.Run("BasicAuth", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth := r.Header.Get("Authorization")
+			expected := "Basic " + base64.StdEncoding.EncodeToString([]byte("user:pass"))
+			if auth != expected {
+				t.Errorf("Expected basic auth header %q, got %q", expected, auth)
+			}
+			fmt.Fprint(w, `<soap:Envelope><soap:Body></soap:Body></soap:Envelope>`)
+		}))
+		defer ts.Close()
+
+		client := NewSoapClient(ts.URL, "http://ns", WithBasicAuth("user", "pass"))
+		client.Call("Action", nil)
+	})
+
+	// 2. Bearer Token
+	t.Run("BearerToken", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			auth := r.Header.Get("Authorization")
+			expected := "Bearer mytoken123"
+			if auth != expected {
+				t.Errorf("Expected bearer header %q, got %q", expected, auth)
+			}
+			fmt.Fprint(w, `<soap:Envelope><soap:Body></soap:Body></soap:Envelope>`)
+		}))
+		defer ts.Close()
+
+		client := NewSoapClient(ts.URL, "http://ns", WithBearerToken("mytoken123"))
+		client.Call("Action", nil)
+	})
+
+	// 3. WS-Security
+	t.Run("WSSecurity", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			sBody := string(body)
+
+			// Simple checks for XML structure presence
+			checks := []string{
+				"<soap:Header>",
+				"wsse:Security",
+				"wsse:Username>admin</wsse:Username>",
+				"wsse:Password",
+				"secret123",
+			}
+			for _, check := range checks {
+				if !strings.Contains(sBody, check) {
+					t.Errorf("Expected WS-Security XML to contain %q, but it didn't. Body:\n%s", check, sBody)
+				}
+			}
+			fmt.Fprint(w, `<soap:Envelope><soap:Body></soap:Body></soap:Envelope>`)
+		}))
+		defer ts.Close()
+
+		client := NewSoapClient(ts.URL, "http://ns", WithWSSecurity("admin", "secret123"))
+		client.Call("Action", nil)
+	})
 }

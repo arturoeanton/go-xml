@@ -11,6 +11,11 @@ Este documento detalla las funcionalidades faltantes y mejoras planificadas para
 
 *Implementado en v1.1*: Soporta comodín `*` en rutas `Query`, ej: `invoice/items/*/sku`.
 
+### 10. Cliente SOAP Dinámico [COMPLETADO]
+**Impacto: Alto** | **Complejidad: Alta**
+
+*Implementado en v1.2*: Soporte completo para llamadas SOAP 1.1 dinámicas, autenticación (Basic/Bearer/WSS), y manejo de Fallos. No requiere structs.
+
 ## 🔮 Media Prioridad (Funcionalidades Estratégicas)
 
 ### 4. Extracción de Nodo Crudo (Canonicalización)

@@ -8,12 +8,28 @@ import (
 	"time"
 )
 
+// AuthType defines the authentication method used by the SoapClient.
+type AuthType int
+
+const (
+	AuthNone AuthType = iota
+	AuthBasic
+	AuthBearer
+	AuthWSSecurity
+)
+
 // SoapClient is a dynamic client for consuming SOAP services without structs.
 type SoapClient struct {
 	EndpointURL    string
 	Namespace      string
 	HttpClient     *http.Client
 	SoapActionBase string // Optional: Overrides Namespace for SOAPAction header generation
+
+	// Authentication
+	AuthType     AuthType
+	AuthUsername string
+	AuthPassword string
+	AuthToken    string
 }
 
 // ClientOption allows configuring the SoapClient (e.g., custom timeout).
@@ -31,6 +47,33 @@ func WithTimeout(timeout time.Duration) ClientOption {
 func WithSoapActionBase(base string) ClientOption {
 	return func(c *SoapClient) {
 		c.SoapActionBase = base
+	}
+}
+
+// WithBasicAuth enables HTTP Basic Authentication.
+func WithBasicAuth(username, password string) ClientOption {
+	return func(c *SoapClient) {
+		c.AuthType = AuthBasic
+		c.AuthUsername = username
+		c.AuthPassword = password
+	}
+}
+
+// WithBearerToken enables HTTP Bearer Token Authentication.
+func WithBearerToken(token string) ClientOption {
+	return func(c *SoapClient) {
+		c.AuthType = AuthBearer
+		c.AuthToken = token
+	}
+}
+
+// WithWSSecurity enables WS-Security UsernameToken Profile.
+// Injects a soap:Header with wsse:Security into the request.
+func WithWSSecurity(username, password string) ClientOption {
+	return func(c *SoapClient) {
+		c.AuthType = AuthWSSecurity
+		c.AuthUsername = username
+		c.AuthPassword = password
 	}
 }
 
@@ -57,14 +100,32 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 // Returns a map representing the parsed SOAP response body.
 func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any, error) {
 	// 1. Build the SOAP Envelope
-	envelope := map[string]any{
-		"soap:Envelope": map[string]any{
-			"@xmlns:soap": "http://schemas.xmlsoap.org/soap/envelope/",
-			"@xmlns:m":    c.Namespace,
-			"soap:Body": map[string]any{
-				"m:" + action: payload,
-			},
+	envelopeMap := map[string]any{
+		"@xmlns:soap": "http://schemas.xmlsoap.org/soap/envelope/",
+		"@xmlns:m":    c.Namespace,
+		"soap:Body": map[string]any{
+			"m:" + action: payload,
 		},
+	}
+
+	// Inject WS-Security Header if needed
+	if c.AuthType == AuthWSSecurity {
+		envelopeMap["soap:Header"] = map[string]any{
+			"wsse:Security": map[string]any{
+				"@xmlns:wsse": "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd",
+				"wsse:UsernameToken": map[string]any{
+					"wsse:Username": c.AuthUsername,
+					"wsse:Password": map[string]any{
+						"@Type": "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText",
+						"#text": c.AuthPassword,
+					},
+				},
+			},
+		}
+	}
+
+	envelope := map[string]any{
+		"soap:Envelope": envelopeMap,
 	}
 
 	// 2. Encode to XML
@@ -81,13 +142,16 @@ func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any
 	}
 
 	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
-	// Some SOAP servers require the action in quotes, some without.
-	// We'll append the namespace if strict SOAP 1.1? Or just the action.
-	// Usually it is "namespace/action" or just "action".
-	// Let's use the provided action combined with namespace if typical,
-	// but user asked for simple "m:action" mapping.
-	// For Headers, strictly "SOAPAction" often needs namespace + action.
-	// Let's try constructing it sanely:
+
+	// Handle Authentication Headers
+	switch c.AuthType {
+	case AuthBasic:
+		req.SetBasicAuth(c.AuthUsername, c.AuthPassword)
+	case AuthBearer:
+		req.Header.Set("Authorization", "Bearer "+c.AuthToken)
+	}
+
+	// SOAPAction Header
 	soapActionHeader := action
 	// Determine base for SOAPAction
 	base := c.Namespace
