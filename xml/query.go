@@ -2,6 +2,7 @@ package xml
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -61,36 +62,55 @@ func QueryAll(data any, path string) ([]any, error) {
 				// ========================================================
 
 				if m, ok := node.(map[string]any); ok {
-					val, exists := m[key]
-					if !exists {
-						continue
-					}
+					var valuesToProcess []any
 
-					if fKey != "" {
-						// Filter Strategy: [key=value]
-						// Iterates over the list and selects items matching criteria.
-						if list, ok := val.([]any); ok {
-							for _, item := range list {
-								if matchFilter(item, fKey, fVal) {
-									nextCandidates = append(nextCandidates, item)
-								}
+					if key == "*" {
+						// Wildcard Strategy: Match all child nodes (excluding attributes/metadata).
+						// We sort keys to ensure deterministic results.
+						var keys []string
+						for k := range m {
+							if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+								keys = append(keys, k)
 							}
 						}
-					} else if idx >= 0 {
-						// Index Strategy: [i]
-						// Selects a specific element from the list.
-						if list, ok := val.([]any); ok {
-							if idx < len(list) {
-								nextCandidates = append(nextCandidates, list[idx])
-							}
+						sort.Strings(keys)
+						for _, k := range keys {
+							valuesToProcess = append(valuesToProcess, m[k])
 						}
 					} else {
-						// Select All Strategy
-						// IMPORTANT: We append the value 'as is'.
-						// If 'val' is a list (e.g., tags: ["a", "b"]), we append the list itself.
-						// We do NOT flatten here because QueryAll results should represent
-						// the distinct nodes found at this path level.
-						nextCandidates = append(nextCandidates, val)
+						// Direct Key Strategy
+						if val, exists := m[key]; exists {
+							valuesToProcess = append(valuesToProcess, val)
+						}
+					}
+
+					for _, val := range valuesToProcess {
+						if fKey != "" {
+							// Filter Strategy: [key=value]
+							// Iterates over the list and selects items matching criteria.
+							if list, ok := val.([]any); ok {
+								for _, item := range list {
+									if matchFilter(item, fKey, fVal) {
+										nextCandidates = append(nextCandidates, item)
+									}
+								}
+							}
+						} else if idx >= 0 {
+							// Index Strategy: [i]
+							// Selects a specific element from the list.
+							if list, ok := val.([]any); ok {
+								if idx < len(list) {
+									nextCandidates = append(nextCandidates, list[idx])
+								}
+							}
+						} else {
+							// Select All Strategy
+							// IMPORTANT: We append the value 'as is'.
+							// If 'val' is a list (e.g., tags: ["a", "b"]), we append the list itself.
+							// We do NOT flatten here because QueryAll results should represent
+							// the distinct nodes found at this path level.
+							nextCandidates = append(nextCandidates, val)
+						}
 					}
 				}
 			}
