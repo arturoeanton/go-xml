@@ -1,6 +1,7 @@
 package xml
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sort"
@@ -8,11 +9,33 @@ import (
 )
 
 // ============================================================================
-// EXPORT UTILITIES (Bridges for CLI)
+// EXPORT UTILITIES
 // ============================================================================
 
-// ToJSON lee XML desde un Reader y devuelve el JSON en []byte.
-// Esta es la función que usa 'cli.go'.
+// ToJSON es un wrapper polimórfico inteligente.
+// Acepta:
+// 1. *OrderedMap: Preserva orden.
+// 2. io.Reader: Lee XML stream y convierte a JSON.
+// 3. any: Fallback a json.Marshal estándar.
+func ToJSON(data any) (string, error) {
+	// Caso 1: OrderedMap (Ya en memoria)
+	if om, ok := data.(*OrderedMap); ok {
+		return om.ToJSON()
+	}
+
+	// Caso 2: Stream (File / Stdin / HTTP Body)
+	if r, ok := data.(io.Reader); ok {
+		b, err := ReaderToJSON(r)
+		return string(b), err
+	}
+
+	// Caso 3: Fallback (Map nativo, Struct, etc.)
+	b, err := json.Marshal(data)
+	return string(b), err
+}
+
+// ReaderToJSON lee XML desde un Reader y devuelve los bytes JSON.
+// Esta función es usada internamente por ToJSON.
 func ReaderToJSON(r io.Reader) ([]byte, error) {
 	// 1. Parsear XML a OrderedMap
 	m, err := MapXML(r)
@@ -21,7 +44,6 @@ func ReaderToJSON(r io.Reader) ([]byte, error) {
 	}
 
 	// 2. Convertir a JSON (Usando el método MarshalJSON de OrderedMap)
-	// Nota: m.MarshalJSON() preserva el orden.
 	return m.MarshalJSON()
 }
 
@@ -33,21 +55,19 @@ func ToCSV(w io.Writer, nodes []*OrderedMap) error {
 	}
 
 	// 1. Descubrir Headers (Unificar claves de todos los nodos para ser robusto)
-	// Esto es necesario porque algunos nodos pueden tener claves que otros no.
 	headerMap := make(map[string]bool)
 	var headers []string
 
 	for _, node := range nodes {
 		for _, k := range node.Keys() {
-			// Ignoramos atributos (@) y texto crudo (#text) para el CSV,
-			// o podrías incluirlos si quisieras. Por ahora limpiamos.
-			if !headerMap[k] && k != "#text" && k != "#cdata" {
+			// Ignoramos atributos (@), texto (#text) y cdata (#cdata) para CSV limpio
+			if !headerMap[k] && !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
 				headerMap[k] = true
 				headers = append(headers, k)
 			}
 		}
 	}
-	sort.Strings(headers) // Orden determinista A-Z para las columnas
+	sort.Strings(headers) // Orden determinista A-Z
 
 	// 2. Escribir Header
 	if _, err := fmt.Fprintln(w, strings.Join(headers, ",")); err != nil {

@@ -212,22 +212,6 @@ func AsTime(v any, layouts ...string) (time.Time, error) {
 // 3. GLOBAL HELPERS
 // ============================================================================
 
-// ToJSON converts the XML map or OrderedMap into a JSON string.
-// This helper is particularly useful for debugging purposes or for preparing API responses.
-func ToJSON(data any) (string, error) {
-
-	if om, ok := data.(*OrderedMap); ok {
-		return om.ToJSON()
-	}
-	if r, ok := data.(io.Reader); ok {
-		b, err := ReaderToJSON(r)
-		return string(b), err
-	}
-
-	b, err := json.Marshal(data)
-	return string(b), err
-}
-
 // Text extracts ALL text content recursively from a node and its children.
 // Equivalent to jQuery's .text().
 func Text(data any) string {
