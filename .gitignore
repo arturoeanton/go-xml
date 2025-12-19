@@ -32,4 +32,5 @@ go.work.sum
 .vscode/
 
 
-.private/
+.private/certificado.crt
+privada.key
