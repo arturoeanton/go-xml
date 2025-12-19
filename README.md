@@ -17,6 +17,7 @@ It is designed for **Enterprise Integration** (Banking, Government, SOAP) where 
 *   **Validation Engine**: Define business rules (Regex, Range, Enum, Type).
 *   **CLI Tool (r2xml)**: Built-in Swiss Army Knife for XML (Format, JSON, CSV, SOAP).
 *   **Dynamic SOAP Client**: Call SOAP 1.1 services without generating code. Supports **mTLS** and **WS-Security**.
+*   **Digital Signatures**: Helper for **XML-DSig** and **XAdES-BES** signing.
 
 ## 📦 Installation
 

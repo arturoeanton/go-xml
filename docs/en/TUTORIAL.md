@@ -83,3 +83,22 @@ go run main.go csv data.xml --path="Order/Item" > items.csv
 ```bash
 go run main.go json data.xml
 ```
+
+## 6. Digital Signatures (XML-DSig & XAdES)
+v2.0 includes a helper for cryptographic signing.
+
+```go
+// 1. Load Certs
+crt, _ := os.ReadFile("cert.pem")
+key, _ := os.ReadFile("key.pem")
+signer, _ := xml.NewSigner(crt, key)
+
+// 2. Sign XML Bytes
+xmlBytes := []byte("<Invoice>...</Invoice>")
+signature, err := signer.CreateXadesSignature(xmlBytes)
+
+// 3. Inject Signature into Map
+m := xml.NewMap()
+// ... build structure ...
+m.Set("ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/ds:Signature", signature)
+```

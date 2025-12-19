@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/sha512"
 	"fmt"
 	"log"
 	"os"
@@ -42,6 +43,9 @@ var demoRegistry = map[string]func(){
 
 	"soap":  demo_soap,
 	"soap2": demo_soap2,
+
+	"dian":  demo_dian,
+	"dian2": demo_dian_ubl,
 }
 
 // RunDemos: El orquestador que llama el main()
@@ -430,4 +434,311 @@ func demo_soap2() {
 		result, _ := xml.Query(resp, "//"+method+"Result")
 		fmt.Printf("Resultado %s: %v\n", method, result)
 	}
+}
+
+func demo_dian() {
+	fmt.Println("   -> Cargando certificados...")
+
+	// 1. Validar existencia de archivos
+	certPath := "certificado.crt"
+	keyPath := "privada.key"
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		fmt.Printf("❌ Error: Falta '%s'. Copialo de la demo anterior.\n", certPath)
+		return
+	}
+
+	crt, _ := os.ReadFile(certPath)
+	key, _ := os.ReadFile(keyPath)
+	signer, err := xml.NewSigner(crt, key)
+	if err != nil {
+		fmt.Printf("❌ Error parseando llaves: %v\n", err)
+		return
+	}
+	fmt.Println("   -> Llaves cargadas correctamente.")
+
+	// 2. Crear el CONTENIDO de la factura (Los datos internos)
+	fmt.Println("   -> Generando XML...")
+
+	innerInvoice := xml.NewMap() // Este será el contenido de <Invoice>
+	innerInvoice.Set("@xmlns", "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2")
+	innerInvoice.Set("@xmlns:ds", "http://www.w3.org/2000/09/xmldsig#") // Namespace firma
+
+	innerInvoice.Set("ID", "SETT-100")
+	innerInvoice.Set("IssueDate", "2025-12-19")
+	innerInvoice.Set("InvoiceTypeCode", "01")
+
+	innerInvoice.Set("LegalMonetaryTotal/LineExtensionAmount", 1000.00)
+	innerInvoice.Set("LegalMonetaryTotal/PayableAmount", 1000.00)
+
+	// 3. Crear el WRAPPER ROOT (Para cumplir la regla de 1 solo elemento)
+	doc := xml.NewMap()
+	doc.Set("Invoice", innerInvoice) // <--- AQUÍ ESTÁ LA SOLUCIÓN
+
+	// 4. Serializar para obtener los bytes a firmar
+	invoiceBytes, err := xml.Marshal(doc)
+	if err != nil {
+		fmt.Printf("❌ Error generando XML base: %v\n", err)
+		return
+	}
+
+	// 5. Generar Firma
+	fmt.Println("   -> Calculando Firma Digital (SHA256 + RSA)...")
+	signatureMap, err := signer.CreateXadesSignature([]byte(invoiceBytes))
+	if err != nil {
+		fmt.Printf("❌ Error firmando: %v\n", err)
+		return
+	}
+
+	// 6. Inyectar Firma en el XML
+	// La insertamos dentro de 'innerInvoice', no en 'doc'
+	innerInvoice.Set("ds:Signature", signatureMap)
+
+	// 7. Resultado Final
+	finalXML, _ := xml.Marshal(doc)
+
+	fmt.Println("\n✅ XML FIRMADO EXITOSAMENTE (DIAN READY):")
+	fmt.Println("--------------------------------------------------")
+	fmt.Println(finalXML)
+	fmt.Println("--------------------------------------------------")
+}
+
+//////
+
+/////
+
+func demo_dian_ubl() {
+	fmt.Println(">>> Generando Factura Electrónica DIAN (UBL 2.1) con CUFE <<<")
+
+	// 1. Cargar Certificados
+	crt, err := os.ReadFile("certificado.crt")
+	if err != nil {
+		fmt.Println("❌ Error cargando certificado.crt:", err)
+		return
+	}
+	key, err := os.ReadFile("privada.key")
+	if err != nil {
+		fmt.Println("❌ Error cargando privada.key:", err)
+		return
+	}
+
+	// Wrapper de firma
+	signer, _ := xml.NewSigner(crt, key)
+
+	// ===============================================================
+	// DATOS VARIABLES
+	// ===============================================================
+	numFac := "SETP-99000001"
+	nitEmisor := "800197268"
+	nitReceptor := "222222222222"
+	valTotal := "1000.00"
+	valImpuestos := "0.00"
+	valPagar := "1000.00"
+	tipoAmbiente := "2" // Pruebas
+	claveTecnica := "fc8eac422eba16e22ffd8c6f94b3940a6e681623"
+
+	now := time.Now()
+	issueDate := now.Format("2006-01-02")
+	// CORRECCION HORA: Concatenamos el offset fijo para Colombia (-05:00)
+	// para evitar que Go interprete el 05 del final como "segundos" repetidos.
+	issueTime := now.Format("15:04:05") + "-05:00"
+
+	// ===============================================================
+	// CÁLCULO DEL CUFE
+	// ===============================================================
+	fmt.Println("   -> Calculando CUFE...")
+	cufe := CalculateCUFE(
+		numFac, issueDate, issueTime, valTotal,
+		"01", valImpuestos,
+		"04", "0.00",
+		valPagar,
+		nitEmisor, nitReceptor,
+		claveTecnica, tipoAmbiente,
+	)
+	fmt.Printf("      CUFE Generado: %s...\n", cufe[:15])
+
+	// ===============================================================
+	// CONSTRUCCIÓN DEL CONTENIDO DE LA FACTURA
+	// ===============================================================
+	invoiceData := xml.NewMap()
+
+	// A. NAMESPACES
+	invoiceData.Set("@xmlns", "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2")
+	invoiceData.Set("@xmlns:cac", "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2")
+	invoiceData.Set("@xmlns:cbc", "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2")
+	invoiceData.Set("@xmlns:ds", "http://www.w3.org/2000/09/xmldsig#")
+	invoiceData.Set("@xmlns:ext", "urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2")
+	invoiceData.Set("@xmlns:xades", "http://uri.etsi.org/01903/v1.3.2#")
+	invoiceData.Set("@xmlns:xades141", "http://uri.etsi.org/01903/v1.4.1#")
+	invoiceData.Set("@xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
+	invoiceData.Set("@xsi:schemaLocation", "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2 http://docs.oasis-open.org/ubl/os-UBL-2.1/xsd/maindoc/UBL-Invoice-2.1.xsd")
+
+	// C. DATOS DE CABECERA
+	invoiceData.Set("cbc:UBLVersionID", "UBL 2.1")
+	invoiceData.Set("cbc:CustomizationID", "10")
+	invoiceData.Set("cbc:ProfileID", "DIAN 2.1: Factura Electrónica de Venta")
+	invoiceData.Set("cbc:ProfileExecutionID", tipoAmbiente)
+	invoiceData.Set("cbc:ID", numFac)
+
+	// CORRECCION: CUFE (Valor + Atributo)
+	invoiceData.Set("cbc:UUID", map[string]interface{}{
+		"#text":       cufe,
+		"@schemeName": "CUFE-SHA384",
+	})
+
+	invoiceData.Set("cbc:IssueDate", issueDate)
+	invoiceData.Set("cbc:IssueTime", issueTime)
+	invoiceData.Set("cbc:InvoiceTypeCode", "01")
+	invoiceData.Set("cbc:Note", "Factura creada con go-xml")
+	invoiceData.Set("cbc:DocumentCurrencyCode", "COP")
+
+	// D. EMISOR
+	supplier := xml.NewMap()
+	supplier.Set("cbc:AdditionalAccountID", "1")
+	party := xml.NewMap()
+	scheme := xml.NewMap()
+	scheme.Set("cbc:RegistrationName", "Mi Empresa S.A.S")
+	scheme.Set("cbc:CompanyID", nitEmisor)
+	scheme.Set("@schemeID", "31")
+	scheme.Set("@schemeName", "31")
+	party.Set("cac:PartyTaxScheme", scheme)
+	supplier.Set("cac:Party", party)
+	invoiceData.Set("cac:AccountingSupplierParty", supplier)
+
+	// E. RECEPTOR
+	customer := xml.NewMap()
+	customer.Set("cbc:AdditionalAccountID", "1")
+	cParty := xml.NewMap()
+	cScheme := xml.NewMap()
+	cScheme.Set("cbc:RegistrationName", "Cliente Final")
+	cScheme.Set("cbc:CompanyID", nitReceptor)
+	cScheme.Set("@schemeID", "13")
+	cParty.Set("cac:PartyTaxScheme", cScheme)
+	customer.Set("cac:Party", cParty)
+	invoiceData.Set("cac:AccountingCustomerParty", customer)
+
+	// F. TOTALES (CORRECCION: Usar maps para valor y moneda)
+	totals := xml.NewMap()
+
+	// Helper para crear montos monetarios
+	copAmount := func(val string) map[string]interface{} {
+		return map[string]interface{}{
+			"#text":       val,
+			"@currencyID": "COP",
+		}
+	}
+
+	totals.Set("cbc:LineExtensionAmount", copAmount(valTotal))
+	totals.Set("cbc:TaxExclusiveAmount", copAmount(valImpuestos))
+	totals.Set("cbc:TaxInclusiveAmount", copAmount(valPagar))
+	totals.Set("cbc:PayableAmount", copAmount(valPagar))
+	invoiceData.Set("cac:LegalMonetaryTotal", totals)
+
+	// G. LINEAS
+	line := xml.NewMap()
+	line.Set("cbc:ID", "1")
+
+	// CORRECCION: Cantidad con unidad
+	line.Set("cbc:InvoicedQuantity", map[string]interface{}{
+		"#text":     "1",
+		"@unitCode": "EA",
+	})
+
+	line.Set("cbc:LineExtensionAmount", copAmount(valTotal))
+
+	item := xml.NewMap()
+	item.Set("cbc:Description", "Servicios de Software Go")
+	line.Set("cac:Item", item)
+
+	price := xml.NewMap()
+	price.Set("cbc:PriceAmount", copAmount(valTotal))
+	line.Set("cac:Price", price)
+
+	invoiceData.Set("cac:InvoiceLine", line)
+
+	// ===============================================================
+	// PROCESO DE FIRMA
+	// ===============================================================
+	fmt.Println("   -> Generando XML base para firma...")
+
+	// Preparamos un "Pre-Root" temporal solo para que el firmador tenga contexto
+	preRoot := xml.NewMap()
+	preRoot.Set("Invoice", invoiceData)
+	xmlBytesToSign, _ := xml.Marshal(preRoot)
+
+	fmt.Println("   -> Calculando Firma XAdES...")
+	sig, err := signer.CreateXadesSignature([]byte(xmlBytesToSign))
+	if err != nil {
+		fmt.Printf("❌ Error firmando: %v\n", err)
+		return
+	}
+
+	// ===============================================================
+	// INYECCIÓN DE FIRMA Y RECONSTRUCCIÓN FINAL
+	// ===============================================================
+
+	// Estructura de la Extensión
+	extensionContent := xml.NewMap()
+	extensionContent.Set("ds:Signature", sig)
+	ublExtension := xml.NewMap()
+	ublExtension.Set("ext:ExtensionContent", extensionContent)
+	ublExtensions := xml.NewMap()
+	ublExtensions.Set("ext:UBLExtension", ublExtension)
+
+	// Creamos el contenido ordenado
+	finalInvoiceContent := xml.NewMap()
+
+	// 1. Namespaces (Atributos @)
+	for _, key := range invoiceData.Keys() {
+		if len(key) > 0 && key[:1] == "@" {
+			val := invoiceData.Get(key)
+			finalInvoiceContent.Set(key, val)
+		}
+	}
+
+	// 2. Extensión con Firma (Debe ir primero dentro de Invoice)
+	finalInvoiceContent.Set("ext:UBLExtensions", ublExtensions)
+
+	// 3. Resto del cuerpo
+	for _, key := range invoiceData.Keys() {
+		if len(key) > 0 && key[:1] != "@" {
+			val := invoiceData.Get(key)
+			finalInvoiceContent.Set(key, val)
+		}
+	}
+
+	// -------------------------------------------------------------
+	// ⚡️ PASO CLAVE: ENVOLVER EN "Invoice"
+	// -------------------------------------------------------------
+	root := xml.NewMap()
+	root.Set("Invoice", finalInvoiceContent)
+
+	finalXML, err := xml.Marshal(root)
+	if err != nil {
+		fmt.Printf("❌ Error marshalling XML: %v\n", err)
+		return
+	}
+
+	fmt.Println("\n✅ XML FIRMADO EXITOSAMENTE (DIAN READY):")
+
+	err = os.WriteFile("factura_dian_cufe.xml", []byte(finalXML), 0644)
+	if err != nil {
+		fmt.Printf("❌ Error guardando archivo: %v\n", err)
+		return
+	}
+
+	fmt.Println("✅ Factura Final Generada: factura_dian_cufe.xml")
+}
+
+// Helper CUFE
+func CalculateCUFE(NumFac, FecFac, HorFac, ValFac, CodImp1, ValImp1, CodImp2, ValImp2, ValTot, NitEmi, NumAdq, ClaveTec, TipoAmb string) string {
+	raw := fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s%s%s%s",
+		NumFac, FecFac, HorFac, ValFac,
+		CodImp1, ValImp1,
+		CodImp2, ValImp2,
+		ValTot,
+		NitEmi, NumAdq,
+		ClaveTec,
+		TipoAmb)
+	hash := sha512.Sum384([]byte(raw))
+	return fmt.Sprintf("%x", hash)
 }

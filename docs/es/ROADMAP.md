@@ -11,6 +11,7 @@
 - [x] **Herramientas CLI**: Comandos `fmt`, `csv`, `json`, `soap`.
 - [x] **Soporte mTLS**: Certificados de Cliente para SOAP.
 - [x] **Exportación CSV**: Aplanar listas XML a CSV.
+- [x] **Firma Digital**: XML-DSig y XAdES-BES nativos (`xml.Signer`).
 
 ## 🚀 v2.x (Futuro / En Progreso)
 - [ ] **Soporte SOAP 1.2**: Manejo de diferentes namespaces de sobre.

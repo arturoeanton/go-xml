@@ -83,3 +83,22 @@ go run main.go csv data.xml --path="Order/Item" > items.csv
 ```bash
 go run main.go json data.xml
 ```
+
+## 6. Firma Digital (XML-DSig y XAdES)
+v2.0 incluye un helper para firma criptográfica.
+
+```go
+// 1. Cargar Certificados
+crt, _ := os.ReadFile("cert.pem")
+key, _ := os.ReadFile("key.pem")
+signer, _ := xml.NewSigner(crt, key)
+
+// 2. Firmar Bytes XML
+xmlBytes := []byte("<Invoice>...</Invoice>")
+signature, err := signer.CreateXadesSignature(xmlBytes)
+
+// 3. Inyectar Firma en el Mapa
+m := xml.NewMap()
+// ... construir estructura ...
+m.Set("ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/ds:Signature", signature)
+```

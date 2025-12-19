@@ -17,6 +17,7 @@ Está diseñado para **Integración Empresarial** (Bancos, Gobierno, SOAP) donde
 *   **Motor de Validación**: Define reglas de negocio (Regex, Rango, Enum, Tipo).
 *   **Herramienta CLI (r2xml)**: Navaja suiza integrada para XML (Format, JSON, CSV, SOAP).
 *   **Cliente SOAP Dinámico**: Llama servicios SOAP 1.1 sin generar código. Soporta **mTLS** y **WS-Security**.
+*   **Firma Digital**: Helper para firmas **XML-DSig** y **XAdES-BES**.
 
 ## 📦 Instalación
 
