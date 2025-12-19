@@ -120,8 +120,8 @@ func demo_v1_ForceArray() {
 	m, _ := xml.MapXML(strings.NewReader(xmlData), xml.ForceArray("book"))
 
 	// Verificamos que sea []any
-	lib := m["library"].(map[string]any)
-	books := lib["book"].([]any) // Si falla el cast, ForceArray falló
+	lib := m.Get("library").(*xml.OrderedMap)
+	books := lib.Get("book").([]any) // Si falla el cast, ForceArray falló
 
 	fmt.Printf("Tipo de 'book': %T (Longitud: %d)\n", books, len(books))
 }
@@ -377,12 +377,10 @@ func demo_soap() {
 	fmt.Printf("Found %d continents:\n", len(continents))
 
 	for _, c := range continents {
-		if cMap, ok := c.(map[string]any); ok {
-			// Usamos xml.String helper si lo implementaste, o Query normal
-			code, _ := xml.Query(cMap, "sCode")
-			name, _ := xml.Query(cMap, "sName")
-			fmt.Printf(" - %v: %v\n", code, name)
-		}
+		// Just use Query directly on 'c' (which works for both map and OrderedMap)
+		code, _ := xml.Query(c, "sCode")
+		name, _ := xml.Query(c, "sName")
+		fmt.Printf(" - %v: %v\n", code, name)
 	}
 
 	// ---------------------------------------------------------

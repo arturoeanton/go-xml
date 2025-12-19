@@ -31,10 +31,24 @@ func NewEncoder(w io.Writer, opts ...Option) *Encoder {
 
 // Encode writes the map data as XML.
 // It ensures there is exactly one root element (ignoring metadata keys like #seq).
-func (e *Encoder) Encode(data map[string]any) error {
+func (e *Encoder) Encode(data any) error {
+	var keys []string
+	var valGetter func(string) any
+
+	// Estrategia: Determinar si es Mapa Ordenado o Estándar
+	if om, ok := data.(*OrderedMap); ok {
+		keys = om.Keys()
+		valGetter = om.Get
+	} else if m, ok := data.(map[string]any); ok {
+		keys = sortedKeys(m)
+		valGetter = func(k string) any { return m[k] }
+	} else {
+		return fmt.Errorf("unsupported type for Encode: %T", data)
+	}
+
 	// Validación de Raíz Única (ignorando metadata)
 	rootCount := 0
-	for k := range data {
+	for _, k := range keys {
 		if !strings.HasPrefix(k, "#") {
 			rootCount++
 		}
@@ -43,12 +57,10 @@ func (e *Encoder) Encode(data map[string]any) error {
 		return errors.New("root must have exactly 1 element")
 	}
 
-	// Ordenamos claves para output determinista
-	keys := sortedKeys(data)
 	for _, k := range keys {
 		// Ignoramos metadata al nivel raíz
 		if !strings.HasPrefix(k, "#") {
-			if err := encodeNode(e.w, k, data[k], e.cfg, 0); err != nil {
+			if err := encodeNode(e.w, k, valGetter(k), e.cfg, 0); err != nil {
 				return err
 			}
 		}
@@ -57,7 +69,7 @@ func (e *Encoder) Encode(data map[string]any) error {
 }
 
 // Marshal returns the XML as a string (Helper wrapper).
-func Marshal(data map[string]any, opts ...Option) (string, error) {
+func Marshal(data any, opts ...Option) (string, error) {
 	var buf bytes.Buffer
 	enc := NewEncoder(&buf, opts...)
 	if err := enc.Encode(data); err != nil {
@@ -91,17 +103,18 @@ func encodeNode(w io.Writer, tag string, value any, cfg *config, depth int) erro
 
 	var content any
 	var cdataContent string
-	var children map[string]any
+	var childrenKeys []string
+	var childrenValGetter func(string) any
 	var isSimple bool
 
 	// 2. Procesar Atributos y Contenido
 	switch v := value.(type) {
-	case map[string]any:
-		children = v
-		keys := sortedKeys(v)
-		for _, k := range keys {
-			val := v[k]
-			// Atributos
+	case *OrderedMap:
+		childrenKeys = v.Keys()
+		childrenValGetter = v.Get
+		// Extraer atributos primero
+		for _, k := range childrenKeys {
+			val := v.Get(k)
 			if strings.HasPrefix(k, "@") {
 				esc := escapeString(fmt.Sprintf("%v", val))
 				fmt.Fprintf(w, ` %s="%s"`, strings.TrimPrefix(k, "@"), esc)
@@ -110,8 +123,24 @@ func encodeNode(w io.Writer, tag string, value any, cfg *config, depth int) erro
 			} else if k == "#cdata" {
 				cdataContent = fmt.Sprintf("%v", val)
 			}
-			// NOTA: Ignoramos #seq, #comments aquí para evitar duplicación o basura
 		}
+
+	case map[string]any:
+		childrenKeys = sortedKeys(v)
+		childrenValGetter = func(k string) any { return v[k] }
+		// Extraer atributos primero
+		for _, k := range childrenKeys {
+			val := v[k]
+			if strings.HasPrefix(k, "@") {
+				esc := escapeString(fmt.Sprintf("%v", val))
+				fmt.Fprintf(w, ` %s="%s"`, strings.TrimPrefix(k, "@"), esc)
+			} else if k == "#text" {
+				content = val
+			} else if k == "#cdata" {
+				cdataContent = fmt.Sprintf("%v", val)
+			}
+		}
+
 	default:
 		// Caso primitivo (string, int, etc.)
 		isSimple = true
@@ -131,12 +160,11 @@ func encodeNode(w io.Writer, tag string, value any, cfg *config, depth int) erro
 	}
 
 	// 4. Hijos Recursivos
-	if !isSimple && len(children) > 0 {
-		keys := sortedKeys(children)
+	if !isSimple && len(childrenKeys) > 0 {
 		hasComplex := false
 
-		for _, k := range keys {
-			val := children[k]
+		for _, k := range childrenKeys {
+			val := childrenValGetter(k)
 
 			// === FIX CRÍTICO ===
 			// Excluir TODA metadata (Keys que empiezan con # o @)

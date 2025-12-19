@@ -8,21 +8,32 @@ import (
 
 // This example will appear in the Go documentation as a real-world use case.
 func ExampleMapXML() {
-	xmlData := `<user><name>Arthur</name><role>Admin</role></user>`
+	xmlStr := `
+	<note>
+		<to>Tove</to>
+		<from>Jani</from>
+		<heading>Reminder</heading>
+		<body>Don't forget me this weekend!</body>
+	</note>`
 
-	// 1. Convert XML to Map
-	m, _ := MapXML(strings.NewReader(xmlData))
+	// 1. Parse XML to OrderedMap
+	root, err := MapXML(strings.NewReader(xmlStr))
+	if err != nil {
+		panic(err)
+	}
 
-	// 2. Query value
-	// CORRECTION: Since <name> has no attributes, the parser simplifies it directly to the value.
-	// No need to use "/#text".
-	name, _ := Query(m, "user/name")
-	role, _ := Query(m, "user/role")
+	// 2. Navigate (Using Get method for OrderedMap)
+	// root is {"note": {"to": "Tove", ...}}
+	note := root.Get("note").(*OrderedMap)
 
-	fmt.Printf("User: %s, Role: %s\n", name, role)
+	fmt.Println("To:", note.Get("to"))
+	fmt.Println("From:", note.Get("from"))
+	fmt.Println("Body:", note.Get("body"))
 
 	// Output:
-	// User: Arthur, Role: Admin
+	// To: Tove
+	// From: Jani
+	// Body: Don't forget me this weekend!
 }
 
 func ExampleForceArray() {
@@ -177,7 +188,7 @@ func ExampleSet() {
 	NewEncoder(os.Stdout).Encode(m)
 
 	// Output:
-	// <config><debug>true</debug><server><port>8080</port></server><timeout>30</timeout></config>
+	// <config><debug>true</debug><timeout>30</timeout><server><port>8080</port></server></config>
 }
 
 // ExampleTextExtraction shows how to extract deep text content from a structure,

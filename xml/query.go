@@ -35,6 +35,20 @@ import (
 //   - Custom Funcs:    "items/func:isNumeric/id"
 //   - Meta-Properties: "items/#count" (Returns number of children)
 //   - Text Extraction: "book/title/#text"
+//
+// QueryAll searches the data structure for all nodes matching the provided path.
+// It returns a slice of matches found.
+//
+// Path Syntax:
+//   - Deep Navigation: "library/section/book"
+//   - Deep Search:     "//error" (Find "error" nodes anywhere)
+//   - Array Indexing:  "users/user[0]"
+//   - Filter Logic:    "book[price>10]" or "user[role='admin']" or "user[id!=5]"
+//   - Filter Funcs:    "book[contains(title, 'Go')]" or "user[starts-with(name, 'A')]"
+//   - Wildcards:       "items/*/sku"
+//   - Custom Funcs:    "items/func:isNumeric/id"
+//   - Meta-Properties: "items/#count" (Returns number of children)
+//   - Text Extraction: "book/title/#text"
 func QueryAll(data any, path string) ([]any, error) {
 	if path == "" {
 		return []any{data}, nil
@@ -43,23 +57,11 @@ func QueryAll(data any, path string) ([]any, error) {
 	// ========================================================
 	// DEEP SEARCH LOGIC (//)
 	// ========================================================
-	// If path starts with "//", it means recursive search for the next segment.
-	// Example: //error -> Find all keys named "error" in the tree.
 	if strings.HasPrefix(path, "//") {
 		targetKey := strings.TrimPrefix(path, "//")
-		// If the targetKey itself contains further pathing (e.g. //section/book),
-		// we first find 'section', then apply 'book' relative to it?
-		// Standard XPath: //section/book means find section anywhere, then immediate book child?
-		// For simplicity/lite version: We support "//targetNode".
-		// If path is complex "a//b", we need split logic.
-		// Let's stick to simplest interpretation:
-		// 1. If starts with //, finding ALL matching nodes recursively.
-		// 2. Then assume rest of path applies?
-		// Let's implement full recursive recursive finder.
 		if idx := strings.Index(targetKey, "/"); idx != -1 {
 			// e.g. //section/book -> find section recursively, then navigate /book
 			// This recursion is complex. Let's do a simple recursive finder for the *first* name.
-			// THIS IMPLEMENTATION: //X -> find all X.
 		}
 		return findAllRecursively(data, targetKey), nil
 	}
@@ -83,19 +85,12 @@ func QueryAll(data any, path string) ([]any, error) {
 			// #COUNT LOGIC
 			// ========================================================
 			if segment == "#count" {
-				// Returns the count of items in the current context list,
-				// OR size of map?
-				// Context: "library/section/#count" -> If section is list, return len.
-				// If section is map, return len(map).
-				// If we adhere to "nodesToSearch", we usually iterate.
-				// But #count is an aggregation.
-				// We should probably return size of 'nodesToSearch' ?
-				// Or size of the container itself?
-				// Let's implement: count of 'candidate'.
 				val := 0
 				if list, ok := candidate.([]any); ok {
 					val = len(list)
-				} else if m, ok := candidate.(map[string]any); ok {
+				} else if m, ok := candidate.(*OrderedMap); ok {
+					val = m.Len()
+				} else if m, ok := candidate.(map[string]any); ok { // Fallback for legacy maps
 					val = len(m)
 				}
 				nextCandidates = append(nextCandidates, val)
@@ -116,9 +111,38 @@ func QueryAll(data any, path string) ([]any, error) {
 					}
 				}
 
-				if m, ok := node.(map[string]any); ok {
-					var valuesToProcess []any
+				// Check for OrderedMap (new) or map[string]any (legacy support)
+				var valuesToProcess []any
 
+				if m, ok := node.(*OrderedMap); ok {
+					if key == "*" {
+						// Wildcard Strategy
+						m.ForEach(func(k string, v any) bool {
+							if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+								valuesToProcess = append(valuesToProcess, v)
+							}
+							return true
+						})
+					} else if strings.HasPrefix(key, "func:") {
+						// Custom Function Strategy
+						funcName := strings.TrimPrefix(key, "func:")
+						if fn, ok := getQueryFunction(funcName); ok {
+							m.ForEach(func(k string, v any) bool {
+								if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+									if fn(k) {
+										valuesToProcess = append(valuesToProcess, v)
+									}
+								}
+								return true
+							})
+						}
+					} else {
+						// Direct Key Strategy
+						if val := m.Get(key); val != nil {
+							valuesToProcess = append(valuesToProcess, val)
+						}
+					}
+				} else if m, ok := node.(map[string]any); ok {
 					if key == "*" {
 						// Wildcard Strategy
 						var keys []string
@@ -154,28 +178,36 @@ func QueryAll(data any, path string) ([]any, error) {
 							valuesToProcess = append(valuesToProcess, val)
 						}
 					}
+				}
 
-					for _, val := range valuesToProcess {
-						if fParams != nil {
-							// Filter Strategy with Enhanced Operators
-							if list, ok := val.([]any); ok {
-								for _, item := range list {
-									if matchFilter(item, fParams) {
-										nextCandidates = append(nextCandidates, item)
-									}
-								}
-							}
-						} else if idx >= 0 {
-							// Index Strategy
-							if list, ok := val.([]any); ok {
-								if idx < len(list) {
-									nextCandidates = append(nextCandidates, list[idx])
+				// Process found values (filter/index)
+				for _, val := range valuesToProcess {
+					if fParams != nil {
+						// Filter Strategy with Enhanced Operators
+						if list, ok := val.([]any); ok {
+							for _, item := range list {
+								if matchFilter(item, fParams) {
+									nextCandidates = append(nextCandidates, item)
 								}
 							}
 						} else {
-							// Select All Strategy
-							nextCandidates = append(nextCandidates, val)
+							// If it's a single item (object), check filter on itself?
+							// Usually filters apply to lists: users/user[id=1]
+							// But if 'user' is single object, we can check it too.
+							if matchFilter(val, fParams) {
+								nextCandidates = append(nextCandidates, val)
+							}
 						}
+					} else if idx >= 0 {
+						// Index Strategy
+						if list, ok := val.([]any); ok {
+							if idx < len(list) {
+								nextCandidates = append(nextCandidates, list[idx])
+							}
+						}
+					} else {
+						// Select All Strategy
+						nextCandidates = append(nextCandidates, val)
 					}
 				}
 			}
@@ -245,19 +277,29 @@ func parseSegment(seg string) (key string, fp *filterParams, idx int) {
 
 // matchFilter checks if an item satisfies the filter condition.
 func matchFilter(item any, fp *filterParams) bool {
-	m, ok := item.(map[string]any)
-	if !ok {
-		return false
+	var actual any
+	found := false
+
+	// Resolve actual value from map or OrderedMap
+	if m, ok := item.(*OrderedMap); ok {
+		if v := m.Get(fp.Key); v != nil {
+			actual = v
+			found = true
+		} else if v := m.Get("@" + fp.Key); v != nil {
+			actual = v
+			found = true
+		}
+	} else if m, ok := item.(map[string]any); ok {
+		if v, exists := m[fp.Key]; exists {
+			actual = v
+			found = true
+		} else if v, exists := m["@"+fp.Key]; exists {
+			actual = v
+			found = true
+		}
 	}
 
-	// Resolve actual value from map
-	var actual any
-	// Try direct key
-	if v, exists := m[fp.Key]; exists {
-		actual = v
-	} else if v, exists := m["@"+fp.Key]; exists {
-		actual = v
-	} else {
+	if !found {
 		return false
 	}
 
@@ -309,18 +351,22 @@ func findAllRecursively(data any, targetKey string) []any {
 	// Helper to check deeper
 	var traverse func(node any)
 	traverse = func(node any) {
-		if m, ok := node.(map[string]any); ok {
+		if m, ok := node.(*OrderedMap); ok {
 			// Check direct match
-			if val, exists := m[targetKey]; exists {
-				// Normalize to ensure consistent return types?
-				// XPath // usually returns the nodes themselves.
+			if val := m.Get(targetKey); val != nil {
 				results = append(results, val)
 			}
-			// Traverse children
-			// Sort keys for deterministic order traversal if crucial?
-			// For Deep Search, order usually document order.
-			// Map iteration is random.
-			// We'll collect keys and sort them to improve stability of results.
+			// Traverse children (Ordered)
+			m.ForEach(func(k string, v any) bool {
+				traverse(v)
+				return true
+			})
+		} else if m, ok := node.(map[string]any); ok {
+			// Check direct match
+			if val, exists := m[targetKey]; exists {
+				results = append(results, val)
+			}
+			// Traverse children (Sorted Keys for stability)
 			var keys []string
 			for k := range m {
 				keys = append(keys, k)

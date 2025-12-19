@@ -117,12 +117,12 @@ func WithPrettyPrint() Option {
 
 type node struct {
 	tagName string
-	data    map[string]any
+	data    *OrderedMap
 }
 
-// MapXML reads the entire XML input from the reader and returns a dynamic map[string]any.
+// MapXML reads the entire XML input from the reader and returns a dynamic OrderedMap.
 // It handles hierarchical data, attributes, CDATA, comments, and preserves mixed-content order via "#seq".
-func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
+func MapXML(r io.Reader, opts ...Option) (*OrderedMap, error) {
 	cfg := &config{
 		forceArrayKeys: make(map[string]bool),
 		namespaces:     make(map[string]string),
@@ -150,7 +150,7 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 		decoder.CharsetReader = charsetReader
 	}
 
-	root := make(map[string]any)
+	root := NewMap()
 	stack := []*node{{tagName: "", data: root}}
 
 	for {
@@ -180,7 +180,7 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 			}
 
 			tagName := resolveName(xml.Name{Space: se.Name.Space, Local: localName}, cfg.namespaces)
-			currentMap := make(map[string]any)
+			currentMap := NewMap()
 
 			for _, attr := range se.Attr {
 				// 2. ATTRIBUTE NORMALIZATION
@@ -190,7 +190,7 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 				}
 				attrName = resolveName(xml.Name{Space: attr.Name.Space, Local: attrName}, cfg.namespaces)
 
-				currentMap["@"+attrName] = processValue(attr.Value, "", cfg)
+				currentMap.Put("@"+attrName, processValue(attr.Value, "", cfg))
 			}
 			stack = append(stack, &node{tagName: tagName, data: currentMap})
 
@@ -218,22 +218,22 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 
 				// A. Guardamos en #text (Versión Limpia/Trimmed)
 				if textContent != "" {
-					if val, exists := current.data["#text"]; exists {
+					if val := current.data.Get("#text"); val != nil {
 						// Nota: Al concatenar #text legacy, agregamos un espacio por seguridad
 						// ya que estamos uniendo fragmentos distantes.
-						current.data["#text"] = val.(string) + textContent
+						current.data.Put("#text", val.(string)+textContent)
 					} else {
-						current.data["#text"] = textContent
+						current.data.Put("#text", textContent)
 					}
 				}
 
 				// B. Guardamos en #seq (Versión Original/Spaced)
 				// Esta es la que usa la función Text() y ExampleText
 				if seqContent != "" {
-					if seq, ok := current.data["#seq"].([]any); ok {
-						current.data["#seq"] = append(seq, seqContent)
+					if seq, ok := current.data.Get("#seq").([]any); ok {
+						current.data.Put("#seq", append(seq, seqContent))
 					} else {
-						current.data["#seq"] = []any{seqContent}
+						current.data.Put("#seq", []any{seqContent})
 					}
 				}
 			}
@@ -241,10 +241,10 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 		case xml.Comment:
 			content := string(se)
 			current := stack[len(stack)-1]
-			if list, exists := current.data["#comments"]; exists {
-				current.data["#comments"] = append(list.([]string), content)
+			if list, ok := current.data.Get("#comments").([]string); ok {
+				current.data.Put("#comments", append(list, content))
 			} else {
-				current.data["#comments"] = []string{content}
+				current.data.Put("#comments", []string{content})
 			}
 
 		case xml.EndElement:
@@ -258,61 +258,61 @@ func MapXML(r io.Reader, opts ...Option) (map[string]any, error) {
 
 			// 4. NODE SIMPLIFICATION
 			// If the node only contains text (and the redundant sequence), simplify it to a string.
-			if len(childNode.data) == 1 {
+			if childNode.data.Len() == 1 {
 				// Case: Only #text
-				if val, ok := childNode.data["#text"]; ok {
+				if val := childNode.data.Get("#text"); val != nil {
 					finalValue = processValue(val.(string), tagName, cfg)
 				}
-			} else if len(childNode.data) == 2 {
+			} else if childNode.data.Len() == 2 {
 				// Case: #text AND #seq (redundant because there are no child tags)
-				_, hasText := childNode.data["#text"]
-				_, hasSeq := childNode.data["#seq"]
+				hasText := childNode.data.Has("#text")
+				hasSeq := childNode.data.Has("#seq")
 				if hasText && hasSeq {
-					finalValue = processValue(childNode.data["#text"].(string), tagName, cfg)
+					finalValue = processValue(childNode.data.Get("#text").(string), tagName, cfg)
 				}
 			}
 
 			// 5. ASSIGN TO PARENT (Map Structure)
-			existingValue, exists := parent.data[tagName]
-			if !exists {
+			existingValue := parent.data.Get(tagName)
+			if existingValue == nil {
 				if cfg.forceArrayKeys[tagName] {
-					parent.data[tagName] = []any{finalValue}
+					parent.data.Put(tagName, []any{finalValue})
 				} else {
-					parent.data[tagName] = finalValue
+					parent.data.Put(tagName, finalValue)
 				}
 			} else {
 				if list, ok := existingValue.([]any); ok {
-					parent.data[tagName] = append(list, finalValue)
+					parent.data.Put(tagName, append(list, finalValue))
 				} else {
-					parent.data[tagName] = []any{existingValue, finalValue}
+					parent.data.Put(tagName, []any{existingValue, finalValue})
 				}
 			}
 
 			// 6. ASSIGN TO PARENT SEQUENCE (Ordered Structure)
 			// This is the key to supporting "Mixed Content". The parent knows exactly
 			// when this child appeared relative to text nodes.
-			if seq, ok := parent.data["#seq"].([]any); ok {
-				parent.data["#seq"] = append(seq, finalValue)
+			if seq, ok := parent.data.Get("#seq").([]any); ok {
+				parent.data.Put("#seq", append(seq, finalValue))
 			} else {
-				parent.data["#seq"] = []any{finalValue}
+				parent.data.Put("#seq", []any{finalValue})
 			}
 
 		case xml.ProcInst:
 			current := stack[len(stack)-1]
 			piContent := fmt.Sprintf("target=%s data=%s", se.Target, string(se.Inst))
-			if list, exists := current.data["#pi"]; exists {
-				current.data["#pi"] = append(list.([]string), piContent)
+			if list, ok := current.data.Get("#pi").([]string); ok {
+				current.data.Put("#pi", append(list, piContent))
 			} else {
-				current.data["#pi"] = []string{piContent}
+				current.data.Put("#pi", []string{piContent})
 			}
 
 		case xml.Directive:
 			current := stack[len(stack)-1]
 			directive := string(se)
-			if list, exists := current.data["#directive"]; exists {
-				current.data["#directive"] = append(list.([]string), directive)
+			if list, ok := current.data.Get("#directive").([]string); ok {
+				current.data.Put("#directive", append(list, directive))
 			} else {
-				current.data["#directive"] = []string{directive}
+				current.data.Put("#directive", []string{directive})
 			}
 		}
 	}

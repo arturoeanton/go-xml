@@ -87,42 +87,50 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 }
 
 // Call ejecuta una acción SOAP.
-func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any, error) {
+func (c *SoapClient) Call(action string, payload map[string]any) (*OrderedMap, error) {
 	// 1. Preparar el Payload
 	// Definimos el xmlns en el nodo de acción para que los hijos lo hereden.
-	actionNode := make(map[string]any)
-	actionNode["@xmlns"] = c.Namespace
-	for k, v := range payload {
-		actionNode[k] = v
+	actionNode := NewMap()
+	actionNode.Put("@xmlns", c.Namespace)
+
+	// Convert payload map to OrderedMap for order preservation (if user passes map)
+	// Ideally user should pass OrderedMap but interface says map[string]any.
+	// We'll iterate sorted keys to be deterministic at least.
+	keys := sortedKeys(payload)
+	for _, k := range keys {
+		actionNode.Put(k, payload[k])
 	}
 
 	// 2. Construir Envelope Base
-	envelopeMap := map[string]any{
-		"@xmlns:soap": "http://schemas.xmlsoap.org/soap/envelope/",
-		"soap:Body": map[string]any{
-			action: actionNode, // <Action xmlns="...">...</Action>
-		},
-	}
+	envelopeMap := NewMap()
+	envelopeMap.Put("@xmlns:soap", "http://schemas.xmlsoap.org/soap/envelope/")
+
+	body := NewMap()
+	body.Put(action, actionNode)
+	envelopeMap.Put("soap:Body", body)
 
 	// 3. Inyectar WS-Security (Si aplica)
 	if c.AuthType == AuthWSSecurity {
-		envelopeMap["soap:Header"] = map[string]any{
-			"wsse:Security": map[string]any{
-				"@xmlns:wsse": "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd",
-				"wsse:UsernameToken": map[string]any{
-					"wsse:Username": c.AuthUsername,
-					"wsse:Password": map[string]any{
-						"@Type": "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText",
-						"#text": c.AuthPassword,
-					},
-				},
-			},
-		}
+		security := NewMap()
+		security.Put("@xmlns:wsse", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd")
+
+		usernameToken := NewMap()
+		usernameToken.Put("wsse:Username", c.AuthUsername)
+
+		password := NewMap()
+		password.Put("@Type", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordText")
+		password.Put("#text", c.AuthPassword)
+		usernameToken.Put("wsse:Password", password)
+
+		security.Put("wsse:UsernameToken", usernameToken)
+
+		header := NewMap()
+		header.Put("wsse:Security", security)
+		envelopeMap.Put("soap:Header", header)
 	}
 
-	envelope := map[string]any{
-		"soap:Envelope": envelopeMap,
-	}
+	envelope := NewMap()
+	envelope.Put("soap:Envelope", envelopeMap)
 
 	// 4. Encode
 	var buf bytes.Buffer
@@ -176,7 +184,7 @@ func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any
 	defer resp.Body.Close()
 
 	// 8. Parse
-	respMap, err := MapXML(resp.Body)
+	respMap, err := MapXML(resp.Body) // Returns *OrderedMap now
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response (status %d): %w", resp.StatusCode, err)
 	}
@@ -184,6 +192,10 @@ func (c *SoapClient) Call(action string, payload map[string]any) (map[string]any
 	// 9. Fault Handling
 	if resp.StatusCode != http.StatusOK {
 		if fault, _ := Query(respMap, "Envelope/Body/Fault"); fault != nil {
+			if fMap, ok := fault.(*OrderedMap); ok {
+				return nil, fmt.Errorf("SOAP Fault %d: [%v] %v", resp.StatusCode, fMap.Get("faultcode"), fMap.Get("faultstring"))
+			}
+			// Fallback for legacy map (unlikely with MapXML change but good for safety)
 			if fMap, ok := fault.(map[string]any); ok {
 				return nil, fmt.Errorf("SOAP Fault %d: [%v] %v", resp.StatusCode, fMap["faultcode"], fMap["faultstring"])
 			}

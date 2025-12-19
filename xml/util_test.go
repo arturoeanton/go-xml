@@ -208,9 +208,10 @@ func TestTransformations(t *testing.T) {
 	// Clone
 	t.Run("Clone", func(t *testing.T) {
 		original := map[string]any{"a": 1}
-		copy := Clone(original)
+		copyVal := Clone(original)
+		copyMap := copyVal.(map[string]any)
 
-		copy["a"] = 2
+		copyMap["a"] = 2
 		// Verificamos que el original siga siendo 1
 		if AsInt(original["a"]) != 1 {
 			t.Error("Clone failed: modifying copy affected original")

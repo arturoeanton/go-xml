@@ -15,9 +15,9 @@ import (
 // 1. SERIALIZATION & BINDING
 // ============================================================================
 
-// MapToJSON converts the XML map into a JSON string.
+// MapToJSON converts the XML map or OrderedMap into a JSON string.
 // This helper is particularly useful for debugging purposes or for preparing API responses.
-func MapToJSON(data map[string]any) (string, error) {
+func MapToJSON(data any) (string, error) {
 	b, err := json.Marshal(data)
 	return string(b), err
 }
@@ -35,11 +35,15 @@ func ToJSON(r io.Reader, opts ...Option) ([]byte, error) {
 
 	// 1. Unwrap Root (if applicable)
 	// MapXML returns a root map like {"root": {...}}. We usually want {...}.
-	// However, MapXML might return {"root": ..., "#seq": ...}. We must ignore metadata keys.
 	var data any = m
 
+	var keys []string
+	if m != nil {
+		keys = m.Keys()
+	}
+
 	nonMetaKeys := 0
-	for k := range m {
+	for _, k := range keys {
 		if !strings.HasPrefix(k, "#") {
 			nonMetaKeys++
 		}
@@ -53,6 +57,29 @@ func ToJSON(r io.Reader, opts ...Option) ([]byte, error) {
 
 func cleanupRecursive(v any) any {
 	switch item := v.(type) {
+	case *OrderedMap:
+		clean := make(map[string]any)
+		item.ForEach(func(k string, val any) bool {
+			// Skip metadata keys
+			if strings.HasPrefix(k, "#") && k != "#text" {
+				return true
+			}
+
+			// Recursively clean value first
+			cleanVal := cleanupRecursive(val)
+
+			// Normalize Key: Remove '@' from attributes
+			newKey := k
+			if strings.HasPrefix(k, "@") {
+				newKey = strings.TrimPrefix(k, "@")
+			}
+
+			// Clean #text if it's the ONLY thing (optional, currently not doing full flattening to avoid ambiguity)
+			// But for now, we just assign.
+			clean[newKey] = cleanVal
+			return true
+		})
+		return clean
 	case map[string]any:
 		clean := make(map[string]any, len(item))
 		for k, val := range item {
@@ -70,8 +97,6 @@ func cleanupRecursive(v any) any {
 				newKey = strings.TrimPrefix(k, "@")
 			}
 
-			// Clean #text if it's the ONLY thing (optional, currently not doing full flattening to avoid ambiguity)
-			// But for now, we just assign.
 			clean[newKey] = cleanVal
 		}
 		return clean
@@ -89,7 +114,7 @@ func cleanupRecursive(v any) any {
 // MapToStruct converts the dynamic map into a user-defined struct.
 // It uses JSON serialization as an intermediate layer, which is the cleanest
 // and most robust approach to map dynamic keys to struct fields (respecting tags).
-func MapToStruct(data map[string]any, result any) error {
+func MapToStruct(data any, result any) error {
 	jsonBytes, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -205,65 +230,113 @@ func AsSlice(v any) []any {
 // 3. MAP INSPECTION & FILTERING
 // ============================================================================
 
-// Keys returns a sorted list of all keys in the map.
-func Keys(data map[string]any) []string {
-	keys := make([]string, 0, len(data))
-	for k := range data {
-		keys = append(keys, k)
+// Keys returns a sorted list of all keys in the map or OrderedMap.
+func Keys(data any) []string {
+	if om, ok := data.(*OrderedMap); ok {
+		return om.Keys()
 	}
-	sort.Strings(keys)
-	return keys
+	if m, ok := data.(map[string]any); ok {
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return keys
+	}
+	return nil
 }
 
 // Attributes returns only the keys that represent XML attributes (starting with "@").
-func Attributes(data map[string]any) map[string]any {
+func Attributes(data any) map[string]any {
 	attrs := make(map[string]any)
-	for k, v := range data {
-		if strings.HasPrefix(k, "@") {
-			attrs[k] = v
+	if om, ok := data.(*OrderedMap); ok {
+		om.ForEach(func(k string, v any) bool {
+			if strings.HasPrefix(k, "@") {
+				attrs[k] = v
+			}
+			return true
+		})
+	} else if m, ok := data.(map[string]any); ok {
+		for k, v := range m {
+			if strings.HasPrefix(k, "@") {
+				attrs[k] = v
+			}
 		}
 	}
 	return attrs
 }
 
 // Children returns only the keys that represent child nodes (excluding attributes and #text).
-func Children(data map[string]any) map[string]any {
+func Children(data any) map[string]any {
 	children := make(map[string]any)
-	for k, v := range data {
-		if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
-			children[k] = v
+	if om, ok := data.(*OrderedMap); ok {
+		om.ForEach(func(k string, v any) bool {
+			if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+				children[k] = v
+			}
+			return true
+		})
+	} else if m, ok := data.(map[string]any); ok {
+		for k, v := range m {
+			if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+				children[k] = v
+			}
 		}
 	}
 	return children
 }
 
-// Has checks if a key exists in the map (shallow check).
-func Has(data map[string]any, key string) bool {
-	_, exists := data[key]
-	return exists
+// Has checks if a key exists in the map or OrderedMap.
+func Has(data any, key string) bool {
+	if om, ok := data.(*OrderedMap); ok {
+		return om.Has(key)
+	}
+	if m, ok := data.(map[string]any); ok {
+		_, exists := m[key]
+		return exists
+	}
+	return false
 }
 
 // Pick returns a new map containing only the specified keys.
-func Pick(data map[string]any, keys ...string) map[string]any {
+func Pick(data any, keys ...string) map[string]any {
 	result := make(map[string]any)
-	for _, k := range keys {
-		if v, ok := data[k]; ok {
-			result[k] = v
+	if om, ok := data.(*OrderedMap); ok {
+		for _, k := range keys {
+			if v := om.Get(k); v != nil {
+				result[k] = v
+			}
+		}
+	} else if m, ok := data.(map[string]any); ok {
+		for _, k := range keys {
+			if v, ok := m[k]; ok {
+				result[k] = v
+			}
 		}
 	}
 	return result
 }
 
 // Omit returns a new map excluding the specified keys.
-func Omit(data map[string]any, keys ...string) map[string]any {
+func Omit(data any, keys ...string) map[string]any {
 	result := make(map[string]any)
 	ignored := make(map[string]bool)
 	for _, k := range keys {
 		ignored[k] = true
 	}
-	for k, v := range data {
-		if !ignored[k] {
-			result[k] = v
+
+	if om, ok := data.(*OrderedMap); ok {
+		om.ForEach(func(k string, v any) bool {
+			if !ignored[k] {
+				result[k] = v
+			}
+			return true
+		})
+	} else if m, ok := data.(map[string]any); ok {
+		for k, v := range m {
+			if !ignored[k] {
+				result[k] = v
+			}
 		}
 	}
 	return result
@@ -275,56 +348,110 @@ func Omit(data map[string]any, keys ...string) map[string]any {
 
 // Clone creates a deep copy of the map, ensuring no reference sharing.
 // Crucial for immutable operations or concurrent access.
-func Clone(data map[string]any) map[string]any {
+func Clone(data any) any {
 	// JSON marshaling is the laziest but most robust way to deep clone generic maps
 	b, _ := json.Marshal(data)
-	var copy map[string]any
-	json.Unmarshal(b, &copy)
-	return copy
+	if _, ok := data.(*OrderedMap); ok {
+		// return as map[string]any because Clone signature was mapped,
+		// but wait, we want to clone INTO OrderedMap if source was OrderedMap?
+		// Rehydrating OrderedMap from JSON is tricky without custom unmarshal logic.
+		// For now, let's return map[string]any or interface{}
+		// TODO: Implement UnmarshalJSON for OrderedMap if strict cloning is needed.
+
+		// If we return *OrderedMap, we need to populate it.
+		// Since we don't have UnmarshalJSON for OrderedMap yet, we might lose order on clone?
+		// Actually, let's stick to simple map compatible clone.
+		var m map[string]any
+		json.Unmarshal(b, &m)
+		return m
+	}
+
+	var copyMap map[string]any
+	json.Unmarshal(b, &copyMap)
+	return copyMap
 }
 
 // Merge recursively merges the 'override' map into the 'base' map.
 // If a key exists in both maps and they are sub-maps, they are merged recursively.
 // Otherwise, the value in 'base' is overwritten by the value from 'override'.
 // Note: This modifies 'base' in place.
-func Merge(base, override map[string]any) {
-	for k, v := range override {
-		// If both are maps, merge recursively
-		if vMap, ok := v.(map[string]any); ok {
-			if baseMap, ok := base[k].(map[string]any); ok {
-				Merge(baseMap, vMap)
-				continue
+// Supports *OrderedMap and map[string]any
+func Merge(base, override any) {
+	// Strategy: Handle combinations.
+	// Since we are moving to OrderedMap priority, we should ideally support merging into OrderedMap.
+
+	if baseOM, ok := base.(*OrderedMap); ok {
+		if overrideOM, ok := override.(*OrderedMap); ok {
+			overrideOM.ForEach(func(k string, v any) bool {
+				if vOM, ok := v.(*OrderedMap); ok {
+					if baseVal := baseOM.Get(k); baseVal != nil {
+						if baseValOM, ok := baseVal.(*OrderedMap); ok {
+							Merge(baseValOM, vOM)
+							return true
+						}
+					}
+				}
+				baseOM.Put(k, v)
+				return true
+			})
+		}
+		// Handle merging legacy map into OrderedMap?
+		if overrideMap, ok := override.(map[string]any); ok {
+			for k, v := range overrideMap {
+				baseOM.Put(k, v) // Shallow merge/overwrite for mixed types
 			}
 		}
-		// Otherwise, overwrite
-		base[k] = v
+	} else if baseMap, ok := base.(map[string]any); ok {
+		// Legacy Base
+		if overrideMap, ok := override.(map[string]any); ok {
+			for k, v := range overrideMap {
+				if vMap, ok := v.(map[string]any); ok {
+					if bMap, ok := baseMap[k].(map[string]any); ok {
+						Merge(bMap, vMap)
+						continue
+					}
+				}
+				baseMap[k] = v
+			}
+		}
 	}
 }
 
 // MergeDeep is an alias for Merge (included for API clarity regarding deep merging).
-func MergeDeep(base, override map[string]any) {
+func MergeDeep(base, override any) {
 	Merge(base, override)
 }
 
 // Flatten converts a nested map into a single-level map with dot notation.
 // Example: {"a": {"b": 1}} -> {"a.b": 1}
 // Useful for exporting to CSV or searching.
-func Flatten(data map[string]any) map[string]any {
+func Flatten(data any) map[string]any {
 	result := make(map[string]any)
 	flattenRecursive(data, "", result)
 	return result
 }
 
-func flattenRecursive(data map[string]any, prefix string, result map[string]any) {
-	for k, v := range data {
-		key := k
-		if prefix != "" {
-			key = prefix + "." + k
+func flattenRecursive(data any, prefix string, result map[string]any) {
+	if om, ok := data.(*OrderedMap); ok {
+		om.ForEach(func(k string, v any) bool {
+			key := k
+			if prefix != "" {
+				key = prefix + "." + k
+			}
+			flattenRecursive(v, key, result)
+			return true
+		})
+	} else if m, ok := data.(map[string]any); ok {
+		for k, v := range m {
+			key := k
+			if prefix != "" {
+				key = prefix + "." + k
+			}
+			flattenRecursive(v, key, result)
 		}
-		if vMap, ok := v.(map[string]any); ok {
-			flattenRecursive(vMap, key, result)
-		} else {
-			result[key] = v
+	} else {
+		if prefix != "" {
+			result[prefix] = data
 		}
 	}
 }
@@ -344,26 +471,46 @@ func textRecursive(data any, sb *strings.Builder) {
 
 	switch v := data.(type) {
 	case string:
-		sb.WriteString(v) // Sin espacio forzado aquí, el parser ya trae espacios si es HTML
+		sb.WriteString(v)
 
 	case int, float64, bool:
 		sb.WriteString(fmt.Sprintf("%v", v))
 
-	case map[string]any:
+	case *OrderedMap:
 		// ESTRATEGIA 1: Si existe #seq, ES LA FUENTE DE LA VERDAD (Ordenada)
+		if seqAny := v.Get("#seq"); seqAny != nil {
+			if seq, ok := seqAny.([]any); ok {
+				for _, item := range seq {
+					textRecursive(item, sb)
+				}
+				return
+			}
+		}
+
+		// ESTRATEGIA 2: Fallback
+		if t := v.Get("#text"); t != nil {
+			sb.WriteString(fmt.Sprintf("%v", t))
+		}
+
+		v.ForEach(func(k string, val any) bool {
+			if !strings.HasPrefix(k, "@") && k != "#text" && k != "#seq" {
+				textRecursive(val, sb)
+			}
+			return true
+		})
+
+	case map[string]any:
 		if seq, ok := v["#seq"].([]any); ok {
 			for _, item := range seq {
 				textRecursive(item, sb)
 			}
-			return // Terminamos aquí, no miramos keys ni #text
+			return
 		}
 
-		// ESTRATEGIA 2: Fallback (Legacy / Simplificado)
 		if t, ok := v["#text"]; ok {
 			sb.WriteString(fmt.Sprintf("%v", t))
 		}
 
-		// Iterar hijos (alfabéticamente, no garantiza orden de lectura)
 		keys := Keys(v)
 		for _, k := range keys {
 			if !strings.HasPrefix(k, "@") && k != "#text" && k != "#seq" {

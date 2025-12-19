@@ -23,15 +23,16 @@ func TestMapXML_BasicAndForceArray(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	lib := m["library"].(map[string]any)
+	lib := m.Get("library").(*OrderedMap)
 
 	// Verify ForceArray: must be []any
-	single, ok := lib["single"].([]any)
+	single := lib.Get("single")
+	singleList, ok := single.([]any)
 	if !ok {
-		t.Errorf("ForceArray failed: expected []any, got %T", lib["single"])
+		t.Errorf("ForceArray failed: expected []any, got %T", single)
 	}
-	if len(single) != 1 {
-		t.Errorf("Incorrect array length: expected 1, got %d", len(single))
+	if len(singleList) != 1 {
+		t.Errorf("Incorrect array length: expected 1, got %d", len(singleList))
 	}
 }
 
@@ -42,9 +43,9 @@ func TestMapXML_Namespaces(t *testing.T) {
 		RegisterNamespace("html", "http://www.w3.org/html"),
 	)
 
-	root := m["root"].(map[string]any)
-	if _, exists := root["html:table"]; !exists {
-		t.Errorf("Namespace Alias failed. Found keys: %v", root)
+	root := m.Get("root").(*OrderedMap)
+	if val := root.Get("html:table"); val == nil {
+		t.Errorf("Namespace Alias failed. Keys: %v", root.Keys())
 	}
 }
 
@@ -57,12 +58,12 @@ func TestMapXML_Experimental(t *testing.T) {
 		t.Fatalf("LenientMode failed: %v", err)
 	}
 
-	data := m["data"].(map[string]any)
+	data := m.Get("data").(*OrderedMap)
 
-	if val, ok := data["val"].(int); !ok || val != 100 {
-		t.Errorf("Int Inference failed: got %T %v", data["val"], data["val"])
+	if val, ok := data.Get("val").(int); !ok || val != 100 {
+		t.Errorf("Int Inference failed: got %T %v", data.Get("val"), data.Get("val"))
 	}
-	if active, ok := data["active"].(bool); !ok || !active {
+	if active, ok := data.Get("active").(bool); !ok || !active {
 		t.Errorf("Bool Inference failed")
 	}
 }
@@ -77,8 +78,8 @@ func TestMapXML_Hooks(t *testing.T) {
 
 	m, _ := MapXML(strings.NewReader(xmlData), WithValueHook("date", dateHook))
 
-	event := m["event"].(map[string]any)
-	if _, ok := event["date"].(time.Time); !ok {
+	event := m.Get("event").(*OrderedMap)
+	if _, ok := event.Get("date").(time.Time); !ok {
 		t.Errorf("Hook failed: expected time.Time")
 	}
 }
@@ -215,7 +216,7 @@ func TestMapXML_Metadata(t *testing.T) {
 	}
 
 	// 1. Verify DOCTYPE (#directive)
-	if directives, ok := m["#directive"].([]string); ok {
+	if directives, ok := m.Get("#directive").([]string); ok {
 		if !strings.Contains(directives[0], "DOCTYPE html") {
 			t.Errorf("Incorrect directive: %v", directives[0])
 		}
@@ -224,7 +225,7 @@ func TestMapXML_Metadata(t *testing.T) {
 	}
 
 	// 2. Verify Processing Instruction (#pi)
-	if pis, ok := m["#pi"].([]string); ok {
+	if pis, ok := m.Get("#pi").([]string); ok {
 		// Expecting format "target=xml-stylesheet data=type=..."
 		if !strings.Contains(pis[0], "target=xml-stylesheet") {
 			t.Errorf("Incorrect ProcInst: %v", pis[0])
@@ -256,32 +257,32 @@ func TestMapXML_SoupMode(t *testing.T) {
 
 	// 1. Verify Normalization (Case Insensitivity)
 	// Expecting lowercase "html", even though input was <HTML>
-	html, ok := m["html"].(map[string]any)
+	html, ok := m.Get("html").(*OrderedMap)
 	if !ok {
 		t.Fatalf("Root tag normalization failed: expected 'html'")
 	}
 
-	body := html["body"].(map[string]any)
-	div := body["div"].(map[string]any)
+	body := html.Get("body").(*OrderedMap)
+	div := body.Get("div").(*OrderedMap)
 
 	// 2. Verify Normalized Attributes
 	// Expecting lowercase "@id", input was ID="Container"
-	if id, ok := div["@id"]; !ok || id != "Container" {
+	if id := div.Get("@id"); id != "Container" {
 		t.Errorf("Attribute normalization failed: expected @id='Container', got: %v", div)
 	}
 
 	// 3. Verify Void Elements and Text
 	// Check that 'img' and 'input' are INSIDE the div and not weirdly nested.
 
-	if _, ok := div["img"]; !ok {
+	if val := div.Get("img"); val == nil {
 		t.Error("The <img> tag was not detected inside the div (possible auto-close error)")
 	}
-	if _, ok := div["input"]; !ok {
+	if val := div.Get("input"); val == nil {
 		t.Error("The <input> tag was not detected inside the div")
 	}
 
 	// Verify that <br> exists and has no children (it's void)
-	if _, ok := div["br"]; !ok {
+	if val := div.Get("br"); val == nil {
 		t.Error("The <br> tag disappeared")
 	}
 }
