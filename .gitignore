@@ -32,5 +32,11 @@ go.work.sum
 .vscode/
 
 
-.private/certificado.crt
-privada.key
+# Archivos de certificados y llaves
+*.crt
+*.key
+*.pem
+*.p12
+
+.private/
+
