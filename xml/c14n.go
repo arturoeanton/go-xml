@@ -39,13 +39,25 @@ func writeCanonical(buf *bytes.Buffer, v interface{}, tagName string) error {
 		}
 		return nil
 
-	case string:
-		buf.WriteString(escapeText(val))
-		return nil
-
 	default:
-		// Ints, Floats, etc.
-		buf.WriteString(escapeText(fmt.Sprintf("%v", val)))
+		// Strings, Ints, Floats, etc.
+		if tagName != "" {
+			buf.WriteByte('<')
+			buf.WriteString(tagName)
+			buf.WriteByte('>')
+		}
+
+		strVal := fmt.Sprintf("%v", val)
+		if s, ok := val.(string); ok {
+			strVal = s
+		}
+		buf.WriteString(escapeText(strVal))
+
+		if tagName != "" {
+			buf.WriteString("</")
+			buf.WriteString(tagName)
+			buf.WriteString(">")
+		}
 		return nil
 	}
 }
@@ -86,12 +98,12 @@ func writeMapCanonical(buf *bytes.Buffer, m *OrderedMap, tagName string) error {
 	}
 
 	// 3. CONTENIDO (Hijos o Texto)
-	hasContent := false
+	// hasContent := false // Ya no es relevante para decidir cierre self-closing, siempre expandido
 
 	// Primero buscamos si tiene contenido texto directo (#text)
 	if textVal := m.Get("#text"); textVal != nil {
 		buf.WriteString(escapeText(fmt.Sprintf("%v", textVal)))
-		hasContent = true
+		// hasContent = true
 	}
 
 	// Luego procesamos los hijos (Keys que NO son atributos ni #text)
@@ -102,12 +114,12 @@ func writeMapCanonical(buf *bytes.Buffer, m *OrderedMap, tagName string) error {
 			if err := writeCanonical(buf, val, k); err != nil {
 				return err
 			}
-			hasContent = true
+			// hasContent = true
 		}
 	}
-	if !hasContent {
-		buf.WriteString("/>")
-	} else {
+
+	// SIEMPRE cerramos con etiqueta completa (C14N suele expandir empty tags: <a/> -> <a></a>)
+	if tagName != "" {
 		buf.WriteString("</")
 		buf.WriteString(tagName)
 		buf.WriteString(">")
