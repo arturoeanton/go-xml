@@ -1,0 +1,9 @@
+{
+    "endpoint": "http://www.dneonline.com/calculator.asmx",
+    "namespace": "http://tempuri.org/",
+    "action": "Add",
+    "payload": {
+        "intA": 10,
+        "intB": 20
+    }
+}

@@ -11,7 +11,7 @@ import (
 )
 
 // ============================================================================
-// 4. STREAMING ENCODER
+// STREAMING ENCODER
 // ============================================================================
 
 // Encoder writes XML directly to an io.Writer.
@@ -22,7 +22,7 @@ type Encoder struct {
 
 // NewEncoder creates a configured encoder.
 func NewEncoder(w io.Writer, opts ...Option) *Encoder {
-	cfg := &config{namespaces: make(map[string]string)}
+	cfg := defaultConfig()
 	for _, opt := range opts {
 		opt(cfg)
 	}
@@ -30,12 +30,11 @@ func NewEncoder(w io.Writer, opts ...Option) *Encoder {
 }
 
 // Encode writes the map data as XML.
-// It ensures there is exactly one root element (ignoring metadata keys like #seq).
 func (e *Encoder) Encode(data any) error {
 	var keys []string
 	var valGetter func(string) any
 
-	// Estrategia: Determinar si es Mapa Ordenado o Estándar
+	// Strategy: Determine if OrderedMap or Standard Map
 	if om, ok := data.(*OrderedMap); ok {
 		keys = om.Keys()
 		valGetter = om.Get
@@ -43,29 +42,25 @@ func (e *Encoder) Encode(data any) error {
 		keys = sortedKeys(m)
 		valGetter = func(k string) any { return m[k] }
 	} else {
-		return fmt.Errorf("unsupported type for Encode: %T", data)
+		return fmt.Errorf("unsupported type for Encode: %T. Expected *OrderedMap or map[string]any", data)
 	}
 
-	// Validación de Raíz Única (ignorando metadata)
-	rootCount := 0
+	// Validation: Root must have exactly 1 element
+	rootTag := ""
 	for _, k := range keys {
-		if !strings.HasPrefix(k, "#") {
-			rootCount++
-		}
-	}
-	if rootCount != 1 {
-		return errors.New("root must have exactly 1 element")
-	}
-
-	for _, k := range keys {
-		// Ignoramos metadata al nivel raíz
-		if !strings.HasPrefix(k, "#") {
-			if err := encodeNode(e.w, k, valGetter(k), e.cfg, 0); err != nil {
-				return err
+		if !strings.HasPrefix(k, "#") && !strings.HasPrefix(k, "@") {
+			if rootTag != "" {
+				return errors.New("root must have exactly 1 element")
 			}
+			rootTag = k
 		}
 	}
-	return nil
+	if rootTag == "" {
+		return errors.New("root element not found")
+	}
+
+	val := valGetter(rootTag)
+	return encodeNode(e.w, rootTag, val, e.cfg, 0)
 }
 
 // Marshal returns the XML as a string (Helper wrapper).
@@ -85,11 +80,11 @@ func encodeNode(w io.Writer, tag string, value any, cfg *config, depth int) erro
 		indent = "\n" + strings.Repeat("  ", depth)
 	}
 
-	// 1. Tag Opening
-	fmt.Fprint(w, indent+"<"+tag)
+	// Prepare Start Element
+	startElem := "<" + tag
 
-	// Inyectar Namespaces en el Root (profundidad 0)
-	if depth == 0 {
+	// Handle Namespaces (only at Root / depth 0)
+	if depth == 0 && len(cfg.namespaces) > 0 {
 		var urls []string
 		for u := range cfg.namespaces {
 			urls = append(urls, u)
@@ -97,7 +92,7 @@ func encodeNode(w io.Writer, tag string, value any, cfg *config, depth int) erro
 		sort.Strings(urls)
 		for _, u := range urls {
 			alias := cfg.namespaces[u]
-			fmt.Fprintf(w, ` xmlns:%s="%s"`, alias, u)
+			startElem += fmt.Sprintf(` xmlns:%s="%s"`, alias, u)
 		}
 	}
 
@@ -105,94 +100,94 @@ func encodeNode(w io.Writer, tag string, value any, cfg *config, depth int) erro
 	var cdataContent string
 	var childrenKeys []string
 	var childrenValGetter func(string) any
-	var isSimple bool
+	var isComplex bool
 
-	// 2. Procesar Atributos y Contenido
+	// Extract Attributes and Children
 	switch v := value.(type) {
 	case *OrderedMap:
-		childrenKeys = v.Keys()
+		isComplex = true
+		allKeys := v.Keys()
 		childrenValGetter = v.Get
-		// Extraer atributos primero
-		for _, k := range childrenKeys {
-			val := v.Get(k)
+
+		// 1. Filter Attributes
+		for _, k := range allKeys {
 			if strings.HasPrefix(k, "@") {
+				val := v.Get(k)
 				esc := escapeString(fmt.Sprintf("%v", val))
-				fmt.Fprintf(w, ` %s="%s"`, strings.TrimPrefix(k, "@"), esc)
+				startElem += fmt.Sprintf(` %s="%s"`, strings.TrimPrefix(k, "@"), esc)
 			} else if k == "#text" {
-				content = val
+				content = v.Get(k)
 			} else if k == "#cdata" {
-				cdataContent = fmt.Sprintf("%v", val)
+				cdataContent = fmt.Sprintf("%v", v.Get(k))
+			} else {
+				childrenKeys = append(childrenKeys, k)
 			}
 		}
 
 	case map[string]any:
-		childrenKeys = sortedKeys(v)
+		isComplex = true
+		allKeys := sortedKeys(v)
 		childrenValGetter = func(k string) any { return v[k] }
-		// Extraer atributos primero
-		for _, k := range childrenKeys {
-			val := v[k]
+
+		for _, k := range allKeys {
 			if strings.HasPrefix(k, "@") {
+				val := v[k]
 				esc := escapeString(fmt.Sprintf("%v", val))
-				fmt.Fprintf(w, ` %s="%s"`, strings.TrimPrefix(k, "@"), esc)
+				startElem += fmt.Sprintf(` %s="%s"`, strings.TrimPrefix(k, "@"), esc)
 			} else if k == "#text" {
-				content = val
+				content = v[k]
 			} else if k == "#cdata" {
-				cdataContent = fmt.Sprintf("%v", val)
+				cdataContent = fmt.Sprintf("%v", v[k])
+			} else {
+				childrenKeys = append(childrenKeys, k)
 			}
 		}
 
 	default:
-		// Caso primitivo (string, int, etc.)
-		isSimple = true
+		// Simple Value
 		content = v
 	}
 
-	fmt.Fprint(w, ">")
+	startElem += ">"
+	fmt.Fprint(w, indent+startElem)
 
-	// 3. Escribir Contenido (#cdata tiene prioridad sobre #text)
+	// Write Content
 	if cdataContent != "" {
-		if cfg.prettyPrint {
-			fmt.Fprint(w, "\n"+strings.Repeat("  ", depth+1))
-		}
 		fmt.Fprint(w, "<![CDATA["+cdataContent+"]]>")
 	} else if content != nil {
 		xml.EscapeText(w, []byte(fmt.Sprintf("%v", content)))
 	}
 
-	// 4. Hijos Recursivos
-	if !isSimple && len(childrenKeys) > 0 {
-		hasComplex := false
-
+	// Write Children
+	if isComplex {
 		for _, k := range childrenKeys {
-			val := childrenValGetter(k)
+			childVal := childrenValGetter(k)
 
-			// === FIX CRÍTICO ===
-			// Excluir TODA metadata (Keys que empiezan con # o @)
-			// Esto evita que #seq se escriba como un tag <#seq> o vuelque basura.
-			if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
-				hasComplex = true
-
-				// Manejo de Arrays (Repetir tag)
-				if list, ok := val.([]any); ok {
-					for _, item := range list {
-						if err := encodeNode(w, k, item, cfg, depth+1); err != nil {
-							return err
-						}
-					}
-				} else {
-					// Nodo simple/mapa
-					if err := encodeNode(w, k, val, cfg, depth+1); err != nil {
+			// Recursion
+			// Handle Arrays
+			if list, ok := childVal.([]any); ok {
+				for _, item := range list {
+					if err := encodeNode(w, k, item, cfg, depth+1); err != nil {
 						return err
 					}
 				}
+			} else if omList, ok := childVal.([]*OrderedMap); ok {
+				for _, item := range omList {
+					if err := encodeNode(w, k, item, cfg, depth+1); err != nil {
+						return err
+					}
+				}
+			} else {
+				if err := encodeNode(w, k, childVal, cfg, depth+1); err != nil {
+					return err
+				}
 			}
-		}
-
-		if hasComplex && cfg.prettyPrint {
-			fmt.Fprint(w, indent)
 		}
 	}
 
+	if isComplex && cfg.prettyPrint {
+		fmt.Fprint(w, "\n"+strings.Repeat("  ", depth))
+	}
 	fmt.Fprint(w, "</"+tag+">")
 	return nil
 }

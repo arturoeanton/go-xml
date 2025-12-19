@@ -2,223 +2,346 @@ package xml
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 )
 
-// Set updates or inserts a value at a given path.
-// It supports map keys ("user/name") and specific indices of existing arrays ("users/user[0]/name").
-// Note: It creates intermediate map keys automatically, but it does NOT create arrays.
-func Set(data any, path string, value any) error {
-	parts := strings.Split(path, "/")
-	var current any = data
+// ============================================================================
+// QUERY ENGINE (Merged from query.go)
+// ============================================================================
 
-	for i, part := range parts {
-		isLast := i == len(parts)-1
-		key, _, idx := parseSegment(part) // Reuse logic from main.go/query.go
+// QueryAll searches the data structure for all nodes matching the provided path.
+func QueryAll(data any, path string) ([]any, error) {
+	if path == "" {
+		return []any{data}, nil
+	}
 
-		// 1. Current node must be a map or OrderedMap to lookup the 'key'
-		var currentMap map[string]any
-		var currentOM *OrderedMap
-		var isOrdered bool
+	if strings.HasPrefix(path, "//") {
+		targetKey := strings.TrimPrefix(path, "//")
+		return findAllRecursively(data, targetKey), nil
+	}
 
-		if om, ok := current.(*OrderedMap); ok {
-			currentOM = om
-			isOrdered = true
-		} else if m, ok := current.(map[string]any); ok {
-			currentMap = m
-		} else {
-			return fmt.Errorf("cannot navigate '%s': current node is not a map, found %T", part, current)
-		}
+	segments := strings.Split(path, "/")
+	currentCandidates := []any{data}
 
-		// 2. Handle Array Access: "tags[1]"
-		if idx >= 0 {
-			var arrVal any
-			var exists bool
-
-			if isOrdered {
-				arrVal = currentOM.Get(key)
-				exists = arrVal != nil
-			} else {
-				arrVal, exists = currentMap[key]
-			}
-
-			if !exists {
-				return fmt.Errorf("array '%s' not found", key)
-			}
-			list, ok := arrVal.([]any)
-			if !ok {
-				return fmt.Errorf("key '%s' exists but is not an array, found %T", key, arrVal)
-			}
-			if idx >= len(list) {
-				return fmt.Errorf("index %d out of bounds for '%s'", idx, key)
-			}
-
-			if isLast {
-				list[idx] = value
-				return nil
-			}
-
-			// Navigate deeper into the array item
-			current = list[idx]
+	for _, segment := range segments {
+		if segment == "" {
 			continue
 		}
+		var nextCandidates []any
+		for _, candidate := range currentCandidates {
+			nodesToSearch := []any{candidate}
+			if list, ok := candidate.([]any); ok {
+				nodesToSearch = list
+			}
 
-		// 3. Handle Standard Map Key: "user"
-		if isLast {
-			if isOrdered {
-				currentOM.Put(key, value)
-			} else {
-				currentMap[key] = value
+			// #count logic
+			if segment == "#count" {
+				val := 0
+				if list, ok := candidate.([]any); ok {
+					val = len(list)
+				} else if m, ok := candidate.(*OrderedMap); ok {
+					val = m.Len()
+				} else if m, ok := candidate.(map[string]any); ok {
+					val = len(m)
+				}
+				nextCandidates = append(nextCandidates, val)
+				continue
 			}
-			return nil
-		}
 
-		// If the next node does not exist, create it as a map (default to OrderedMap if parent is Ordered, else map)
-		if isOrdered {
-			if val := currentOM.Get(key); val == nil {
-				newMap := NewMap()
-				currentOM.Put(key, newMap)
-				current = newMap
-			} else {
-				current = val
+			for _, node := range nodesToSearch {
+				key, fParams, idx := parseSegment(segment)
+
+				if key == "#text" {
+					switch node.(type) {
+					case string, int, float64, bool:
+						nextCandidates = append(nextCandidates, node)
+						continue
+					}
+				}
+
+				var valuesToProcess []any
+
+				if m, ok := node.(*OrderedMap); ok {
+					if key == "*" {
+						m.ForEach(func(k string, v any) bool {
+							if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+								valuesToProcess = append(valuesToProcess, v)
+							}
+							return true
+						})
+					} else if strings.HasPrefix(key, "func:") {
+						funcName := strings.TrimPrefix(key, "func:")
+						if fn, ok := getQueryFunction(funcName); ok {
+							m.ForEach(func(k string, v any) bool {
+								if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+									if fn(k) {
+										valuesToProcess = append(valuesToProcess, v)
+									}
+								}
+								return true
+							})
+						}
+					} else {
+						if val := m.Get(key); val != nil {
+							valuesToProcess = append(valuesToProcess, val)
+						}
+					}
+				} else if m, ok := node.(map[string]any); ok {
+					if key == "*" {
+						var keys []string
+						for k := range m {
+							if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+								keys = append(keys, k)
+							}
+						}
+						sort.Strings(keys)
+						for _, k := range keys {
+							valuesToProcess = append(valuesToProcess, m[k])
+						}
+					} else if strings.HasPrefix(key, "func:") {
+						funcName := strings.TrimPrefix(key, "func:")
+						if fn, ok := getQueryFunction(funcName); ok {
+							var keys []string
+							for k := range m {
+								if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
+									if fn(k) {
+										keys = append(keys, k)
+									}
+								}
+							}
+							sort.Strings(keys)
+							for _, k := range keys {
+								valuesToProcess = append(valuesToProcess, m[k])
+							}
+						}
+					} else {
+						if val, exists := m[key]; exists {
+							valuesToProcess = append(valuesToProcess, val)
+						}
+					}
+				}
+
+				for _, val := range valuesToProcess {
+					if fParams != nil {
+						if list, ok := val.([]any); ok {
+							for _, item := range list {
+								if matchFilter(item, fParams) {
+									nextCandidates = append(nextCandidates, item)
+								}
+							}
+						} else {
+							if matchFilter(val, fParams) {
+								nextCandidates = append(nextCandidates, val)
+							}
+						}
+					} else if idx >= 0 {
+						if list, ok := val.([]any); ok {
+							if idx < len(list) {
+								nextCandidates = append(nextCandidates, list[idx])
+							}
+						}
+					} else {
+						nextCandidates = append(nextCandidates, val)
+					}
+				}
 			}
-		} else {
-			if _, exists := currentMap[key]; !exists {
-				currentMap[key] = make(map[string]any)
-			}
-			current = currentMap[key]
 		}
+		if len(nextCandidates) == 0 {
+			return nil, nil // Not found
+		}
+		currentCandidates = nextCandidates
 	}
-	return nil
+	return currentCandidates, nil
 }
 
-// Delete removes a value or a complete node at the specified path.
-// It supports deletion of map keys ("user/email") and array indices ("users/user[1]").
-func Delete(data any, path string) error {
-	parts := strings.Split(path, "/")
-
-	// 1. Navigate to the PARENT of the element to delete.
-	var current any = data
-	lastIdx := len(parts) - 1
-
-	for i := 0; i < lastIdx; i++ {
-		part := parts[i]
-		key, _, idx := parseSegment(part)
-
-		// Current must be a map
-		var val any
-		var exists bool
-
-		if om, ok := current.(*OrderedMap); ok {
-			val = om.Get(key)
-			exists = val != nil
-		} else if m, ok := current.(map[string]any); ok {
-			val, exists = m[key]
-		} else {
-			return fmt.Errorf("invalid path '%s': parent is not a map", part)
-		}
-
-		// If it's an array navigation ("tags[0]")
-		if idx >= 0 {
-			if !exists {
-				return fmt.Errorf("path '%s' not found", part)
-			}
-			list, ok := val.([]any)
-			if !ok {
-				return fmt.Errorf("expected array at '%s', found %T", key, val)
-			}
-			if idx >= len(list) {
-				return fmt.Errorf("index out of range at '%s': %d", part, idx)
-			}
-			current = list[idx] // Advance inside the array
-			continue
-		}
-
-		// Standard map navigation
-		if !exists {
-			return fmt.Errorf("path '%s' not found", part)
-		}
-		current = val // Advance
-	}
-
-	// 2. Execute Deletion on the last segment
-	targetPart := parts[lastIdx]
-	key, _, idx := parseSegment(targetPart)
-
-	// The 'current' is the container map
-	if om, ok := current.(*OrderedMap); ok {
-		// CASE A: Delete an element from an Array
-		if idx >= 0 {
-			val := om.Get(key)
-			if val == nil {
-				return nil // Idempotent
-			}
-			list, ok := val.([]any)
-			if !ok {
-				return fmt.Errorf("attempted to delete index from '%s' but it is not an array", key)
-			}
-			if idx >= len(list) {
-				return fmt.Errorf("deletion index out of range: %d", idx)
-			}
-			// Delete from slice
-			newList := append(list[:idx], list[idx+1:]...)
-			om.Put(key, newList)
-			return nil
-		}
-		// CASE B: Delete a Map key
-		om.Remove(key)
-		return nil
-
-	} else if m, ok := current.(map[string]any); ok {
-		// CASE A: Delete an element from an Array
-		if idx >= 0 {
-			val, exists := m[key]
-			if !exists {
-				return nil // Idempotent
-			}
-			list, ok := val.([]any)
-			if !ok {
-				return fmt.Errorf("attempted to delete index from '%s' but it is not an array", key)
-			}
-			if idx >= len(list) {
-				return fmt.Errorf("deletion index out of range: %d", idx)
-			}
-			// Delete from slice
-			newList := append(list[:idx], list[idx+1:]...)
-			m[key] = newList
-			return nil
-		}
-		// CASE B: Delete a Map key
-		delete(m, key)
-		return nil
-
-	} else {
-		return fmt.Errorf("cannot delete '%s', parent is not an accessible map", targetPart)
-	}
+type filterParams struct {
+	Key    string
+	Op     string
+	Val    string
+	IsFunc bool
 }
 
-// Get retrieves a value at the specified path and asserts it to type T.
-// Usage: name, err := xml.Get[string](m, "user/name")
+func parseSegment(seg string) (key string, fp *filterParams, idx int) {
+	idx = -1
+	key = seg
+	if i := strings.Index(seg, "["); i > 0 && strings.HasSuffix(seg, "]") {
+		key = seg[:i]
+		inside := seg[i+1 : len(seg)-1]
+
+		if strings.Contains(inside, "(") && strings.Contains(inside, ")") {
+			pIndex := strings.Index(inside, "(")
+			funcName := strings.TrimSpace(inside[:pIndex])
+			argsStr := inside[pIndex+1 : len(inside)-1]
+			args := strings.Split(argsStr, ",")
+			if len(args) == 2 {
+				fKey := strings.TrimSpace(args[0])
+				fVal := strings.TrimSpace(args[1])
+				fVal = strings.Trim(fVal, "'\"")
+				return key, &filterParams{Key: fKey, Op: funcName, Val: fVal, IsFunc: true}, -1
+			}
+		}
+
+		ops := []string{"!=", ">=", "<=", "=", ">", "<"}
+		for _, op := range ops {
+			if strings.Contains(inside, op) {
+				parts := strings.SplitN(inside, op, 2)
+				fKey := strings.TrimSpace(parts[0])
+				fVal := strings.TrimSpace(parts[1])
+				fVal = strings.Trim(fVal, "'\"")
+				return key, &filterParams{Key: fKey, Op: op, Val: fVal, IsFunc: false}, -1
+			}
+		}
+
+		if val, err := strconv.Atoi(inside); err == nil {
+			idx = val
+		}
+	}
+	return
+}
+
+func matchFilter(item any, fp *filterParams) bool {
+	var actual any
+	found := false
+
+	if m, ok := item.(*OrderedMap); ok {
+		if v := m.Get(fp.Key); v != nil {
+			actual = v
+			found = true
+		} else if v := m.Get("@" + fp.Key); v != nil {
+			actual = v
+			found = true
+		}
+	} else if m, ok := item.(map[string]any); ok {
+		if v, exists := m[fp.Key]; exists {
+			actual = v
+			found = true
+		} else if v, exists := m["@"+fp.Key]; exists {
+			actual = v
+			found = true
+		}
+	}
+
+	if !found {
+		return false
+	}
+
+	actualStr := fmt.Sprintf("%v", actual)
+
+	if fp.IsFunc {
+		switch fp.Op {
+		case "contains":
+			return strings.Contains(actualStr, fp.Val)
+		case "starts-with":
+			return strings.HasPrefix(actualStr, fp.Val)
+		}
+		return false
+	}
+
+	switch fp.Op {
+	case "=":
+		return actualStr == fp.Val
+	case "!=":
+		return actualStr != fp.Val
+	case ">", "<", ">=", "<=":
+		numV, errV := strconv.ParseFloat(actualStr, 64)
+		targetV, errT := strconv.ParseFloat(fp.Val, 64)
+		if errV != nil || errT != nil {
+			return false
+		}
+		switch fp.Op {
+		case ">":
+			return numV > targetV
+		case "<":
+			return numV < targetV
+		case ">=":
+			return numV >= targetV
+		case "<=":
+			return numV <= targetV
+		}
+	}
+	return false
+}
+
+func findAllRecursively(data any, targetKey string) []any {
+	var results []any
+	var traverse func(node any)
+	traverse = func(node any) {
+		if m, ok := node.(*OrderedMap); ok {
+			if val := m.Get(targetKey); val != nil {
+				results = append(results, val)
+			}
+			m.ForEach(func(k string, v any) bool {
+				traverse(v)
+				return true
+			})
+		} else if m, ok := node.(map[string]any); ok {
+			if val, exists := m[targetKey]; exists {
+				results = append(results, val)
+			}
+			var keys []string
+			for k := range m {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				traverse(m[k])
+			}
+		} else if list, ok := node.([]any); ok {
+			for _, item := range list {
+				traverse(item)
+			}
+		}
+	}
+	traverse(data)
+	return results
+}
+
+// Query is a convenience wrapper around QueryAll that returns the first matching result.
+func Query(data any, path string) (any, error) {
+	res, err := QueryAll(data, path)
+	if err != nil {
+		return nil, err
+	}
+	if len(res) == 0 {
+		return nil, fmt.Errorf("not found")
+	}
+	return res[0], nil
+}
+
+// Get realiza una Query y retorna el valor tipado T.
 func Get[T any](data any, path string) (T, error) {
 	var zero T
-
-	// 1. Reuse the Query engine
 	val, err := Query(data, path)
 	if err != nil {
 		return zero, err
 	}
 
-	// 2. Type Assertion
-	typedVal, ok := val.(T)
-	if !ok {
-		// Special Case: int -> float64 conversion
-		if vInt, isInt := val.(int); isInt {
-			if vFloat, okFloat := any(float64(vInt)).(T); okFloat {
-				return vFloat, nil
-			}
-		}
-		return zero, fmt.Errorf("Get: value at '%s' is type %T, expected %T", path, val, zero)
+	if v, ok := val.(T); ok {
+		return v, nil
 	}
 
-	return typedVal, nil
+	switch any(zero).(type) {
+	case string:
+		return any(fmt.Sprintf("%v", val)).(T), nil
+	case int:
+		str := fmt.Sprintf("%v", val)
+		if i, err := strconv.Atoi(str); err == nil {
+			return any(i).(T), nil
+		}
+	}
+
+	return zero, fmt.Errorf("value at %s is %T, expected %T", path, val, zero)
+}
+
+// Rule defines a validation constraint for the Validate engine.
+type Rule struct {
+	Path     string
+	Required bool
+	Type     string
+	Min      float64
+	Max      float64
+	Regex    string
+	Enum     []string
 }

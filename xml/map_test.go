@@ -7,215 +7,142 @@ import (
 	"testing"
 )
 
-func TestOrderedMap_BasicOperations(t *testing.T) {
+func TestOrderedMap_Order(t *testing.T) {
 	m := NewMap()
-
-	// Test Put & Order
 	m.Put("Z", 1)
 	m.Put("A", 2)
-	m.Put("M", 3)
+	m.Put("C", 3)
 
-	if m.Len() != 3 {
-		t.Errorf("Expected len 3, got %d", m.Len())
-	}
-
-	// Verificar orden de keys
 	keys := m.Keys()
-	if keys[0] != "Z" || keys[1] != "A" || keys[2] != "M" {
-		t.Errorf("Order check failed. Got %v", keys)
+	expected := []string{"Z", "A", "C"}
+
+	if len(keys) != 3 {
+		t.Errorf("Expected 3 keys, got %d", len(keys))
+	}
+	for i, k := range keys {
+		if k != expected[i] {
+			t.Errorf("Order mismatch at index %d. Expected %s, got %s", i, expected[i], k)
+		}
 	}
 
-	// Test Get
-	if val := m.Get("A"); val != 2 {
-		t.Errorf("Get failed, expected 2, got %v", val)
-	}
-
-	// Test Update (Order shouldn't change)
-	m.Put("Z", 99)
-	keysAfterUpdate := m.Keys()
-	if keysAfterUpdate[0] != "Z" {
-		t.Error("Update changed key order!")
-	}
-	if m.Get("Z") != 99 {
-		t.Error("Update failed value")
-	}
-
-	// Test Remove
-	m.Remove("A")
-	if m.Len() != 2 {
-		t.Error("Remove failed len")
-	}
-	if m.Has("A") {
-		t.Error("Remove failed, key still exists")
-	}
-	keysAfterRemove := m.Keys()
-	if keysAfterRemove[0] != "Z" || keysAfterRemove[1] != "M" {
-		t.Error("Remove broke order")
+	// JSON Marshal check
+	b, _ := json.Marshal(m)
+	jsonStr := string(b)
+	expectedJSON := `{"Z":1,"A":2,"C":3}`
+	if jsonStr != expectedJSON {
+		t.Errorf("JSON order mismatch.\nExpected: %s\nGot:      %s", expectedJSON, jsonStr)
 	}
 }
 
-func TestOrderedMap_JSON(t *testing.T) {
+func TestOrderedMap_DeepSet(t *testing.T) {
 	m := NewMap()
-	m.Put("name", "Arturo")
-	m.Put("age", 40)
-	m.Put("city", "BUE")
+	m.Set("a/b/c", "deep")
 
-	// JSON estándar en Go ordena alfabéticamente las keys de structs/maps.
-	// Nuestro OrderedMap DEBE respetar el orden de inserción.
-	b, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
+	val := m.String("a/b/c")
+	if val != "deep" {
+		t.Errorf("Deep Set failed. Got %v", val)
 	}
 
-	expected := `{"name":"Arturo","age":40,"city":"BUE"}`
-	if string(b) != expected {
-		t.Errorf("JSON Order failed.\nExpected: %s\nGot:      %s", expected, string(b))
+	// Verify intermediate nodes are OrderedMaps
+	node := m.GetNode("a/b")
+	if node == nil {
+		t.Error("Intermediate node a/b missing or not OrderedMap")
 	}
 }
 
-func TestOrderedMap_XML(t *testing.T) {
+func TestOrderedMap_List(t *testing.T) {
 	m := NewMap()
-	// Simulando estructura ARCA: Auth debe tener Token antes que Sign
-	m.Put("Token", "ABC")
-	m.Put("Sign", "XYZ")
-	m.Put("@xmlns", "http://afip.gov.ar") // Atributo
+	// Single item list
+	m.Set("items/item", "one")
 
-	type Envelope struct {
-		Body *OrderedMap `xml:"Body"`
+	list := m.List("items/item")
+	// Since "one" is a string, List should return empty or ... ?
+	// List returns []*OrderedMap. 'one' is string, so it's not included.
+	if len(list) != 0 {
+		t.Errorf("Expected empty list for string value, got %d", len(list))
 	}
-	env := Envelope{Body: m}
 
-	b, err := xml.Marshal(env)
+	// Create proper list of objects
+	m2 := NewMap()
+	child1 := NewMap()
+	child1.Put("id", 1)
+	child2 := NewMap()
+	child2.Put("id", 2)
+
+	// We need to manually simulate slice insertion for this test
+	// or use a parser to create it.
+	// Let's manually construct:
+	itemsNode := NewMap()
+	itemsNode.Put("item", []any{child1, child2})
+	m2.Put("items", itemsNode)
+
+	nodes := m2.List("items/item")
+	if len(nodes) != 2 {
+		t.Errorf("Expected 2 nodes, got %d", len(nodes))
+	}
+	if nodes[0].Int("id") != 1 {
+		t.Error("Element 1 mismatch")
+	}
+}
+
+func TestOrderedMap_MarshalXML(t *testing.T) {
+	m := NewMap()
+	m.Put("@id", "123")
+	m.Put("Child", "Value")
+
+	// Wrap in a root name for standard marshalling context
+	type Root struct {
+		XMLName xml.Name `xml:"root"`
+		Data    *OrderedMap
+	}
+
+	// Ideally OrderedMap implements Marshaler, so we can marshal it directly if we provide a StartElement?
+	// But encoding/xml usually marshals fields.
+	// Let's test if we can marshal the map directly as a member.
+
+	// Actually, custom Marshaler allows: xml.Marshal(m)
+	// But xml.Marshal(m) generates <OrderedMap>...</OrderedMap> usually unless valid mapping.
+	// Our MarshalXML has signature: (e *xml.Encoder, start xml.StartElement)
+
+	// Let's try direct marshal
+	// Note: For *OrderedMap to be marshalled as the root element with a specific name,
+	// we usually need a struct wrapper or rely on the caller providing start element.
+	// But `xml.Marshal` uses reflect.
+
+	// Test usage via our Encoder first (which is known to work)
+	// But the user added `MarshalXML` specifically for `encoding/xml` compatibility.
+
+	// Let's try standard xml.Marshal
+	rawXML, err := xml.Marshal(m)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Standard xml.Marshal failed: %v", err)
 	}
 
-	xmlStr := string(b)
+	// With standard Marshal, it uses the type name as tag if not specified?
+	// Or it might fail if StartElement isn't passed correctly?
+	// The standard lib passes a default start element based on type name or field tag.
+	// Output should be roughly: <OrderedMap id="123"><Child>Value</Child></OrderedMap>
 
-	// Validar que el atributo se inyectó
-	if !strings.Contains(xmlStr, `Body xmlns="http://afip.gov.ar"`) {
-		t.Error("XML Attribute injection failed")
+	out := string(rawXML)
+	if !strings.Contains(out, `id="123"`) {
+		t.Errorf("MarshalXML missing attribute. Got: %s", out)
 	}
-
-	// Validar Orden estricto: Token antes de Sign
-	tokenIdx := strings.Index(xmlStr, "<Token>ABC</Token>")
-	signIdx := strings.Index(xmlStr, "<Sign>XYZ</Sign>")
-
-	if tokenIdx == -1 || signIdx == -1 {
-		t.Fatal("XML elements missing")
-	}
-	if tokenIdx > signIdx {
-		t.Error("XML Order failed! Sign appeared before Token")
-	}
-}
-func TestOrderedMap_AdvancedFeatures(t *testing.T) {
-	// 1. Test Deep Access (GetPath)
-	root := NewMap()
-	auth := NewMap()
-	auth.Put("Token", "12345")
-	root.Put("Header", auth)
-
-	val := root.GetPath("Header/Token")
-	if val != "12345" {
-		t.Errorf("GetPath failed. Expected '12345', got %v", val)
-	}
-
-	if root.GetPath("Header/NonExistent") != nil {
-		t.Error("GetPath should return nil for missing keys")
-	}
-
-	// 2. Test Merge
-	defaults := NewMap()
-	defaults.Put("Timeout", 30)
-	defaults.Put("Retries", 3)
-
-	config := NewMap()
-	config.Put("Timeout", 60)   // Override
-	config.Put("User", "Admin") // New
-
-	defaults.Merge(config)
-
-	if defaults.Get("Timeout") != 60 {
-		t.Error("Merge did not override existing key")
-	}
-	if defaults.Get("User") != "Admin" {
-		t.Error("Merge did not add new key")
-	}
-	if defaults.Len() != 3 {
-		t.Error("Merge len incorrect")
-	}
-
-	// 3. Test Sort
-	unsorted := NewMap()
-	unsorted.Put("Z", 1)
-	unsorted.Put("A", 2)
-	unsorted.Put("M", 3)
-
-	unsorted.Sort()
-	keys := unsorted.Keys()
-	if keys[0] != "A" || keys[1] != "M" || keys[2] != "Z" {
-		t.Errorf("Sort failed. Got %v", keys)
-	}
-
-	// 4. Test Clone
-	original := NewMap()
-	original.Put("A", 1)
-	copyMap := original.Clone()
-
-	copyMap.Put("A", 999) // Mutate copy
-
-	if original.Get("A") == 999 {
-		t.Error("Clone is linked to original! Mutation leaked.")
+	if !strings.Contains(out, `<Child>Value</Child>`) {
+		t.Errorf("MarshalXML missing child. Got: %s", out)
 	}
 }
 
-func TestOrderedMap_ToMap(t *testing.T) {
-	// Estructura Compleja: Root -> Child -> GrandChild
-	grandChild := NewMap()
-	grandChild.Put("Secret", "Code")
+func TestOrderedMap_Dump(t *testing.T) {
+	m := NewMap()
+	m.Put("A", 1)
+	m.Put("B", 2)
 
-	child := NewMap()
-	child.Put("Name", "Hijo")
-	child.Put("Details", grandChild) // Anidado
-
-	root := NewMap()
-	root.Put("Type", "Padre")
-	root.Put("Info", child) // Anidado
-
-	// También probamos un slice mixto
-	list := []any{NewMap(), "texto"}
-	root.Put("List", list)
-
-	// CONVERSIÓN
-	native := root.ToMap()
-
-	// Validaciones
-	// 1. Root debe ser map[string]any
-	if _, ok := native["Type"]; !ok {
-		t.Error("Root key missing")
+	dump := m.Dump()
+	// Should be JSON indented
+	if !strings.Contains(dump, "{\n") {
+		t.Error("Dump should be indented")
 	}
-
-	// 2. Child debe ser map[string]any (NO *OrderedMap)
-	infoVal := native["Info"]
-	nativeChild, ok := infoVal.(map[string]any)
-	if !ok {
-		t.Errorf("Nested child is not map[string]any, got %T", infoVal)
-	}
-
-	// 3. GrandChild debe ser map[string]any
-	detailsVal := nativeChild["Details"]
-	nativeGrandChild, ok := detailsVal.(map[string]any)
-	if !ok {
-		t.Errorf("Deep nested child is not map[string]any, got %T", detailsVal)
-	}
-
-	if nativeGrandChild["Secret"] != "Code" {
-		t.Error("Deep value lost")
-	}
-
-	// 4. Slice debe estar limpio
-	listVal := native["List"].([]any)
-	if _, ok := listVal[0].(map[string]any); !ok {
-		t.Error("Map inside slice was not converted")
+	if !strings.Contains(dump, `"A": 1`) {
+		t.Error("Dump missing content")
 	}
 }

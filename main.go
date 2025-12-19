@@ -8,26 +8,56 @@ import (
 )
 
 func main() {
-	args := os.Args[1:]
-
-	// 1. Modo Demo
-	if len(args) > 0 && args[0] == "--demo" {
-		target := "all"
-		if len(args) > 1 {
-			target = args[1]
-		}
-		RunDemos(target)
-		return
+	// Router simple de comandos
+	if len(os.Args) < 2 {
+		printHelp()
+		os.Exit(0)
 	}
 
-	// 2. Modo CLI Tool (Query)
-	// Ejemplo: echo "..." | go run main.go query "path"
-	xml.RunCLI()
+	command := os.Args[1]
+	args := os.Args[2:]
 
-	// 3. Ayuda por defecto
-	fmt.Println("r2/xml CLI")
-	fmt.Println("Usage:")
-	fmt.Println("  --demo [name]   : Run demos (basic, stream_r, hooks, legacy, json, etc)")
-	fmt.Println("  --json [file]   : Convert XML from File/Stdin to JSON Stdout")
-	fmt.Println("  query \"path\"    : Execute query (XPath-like) on Stdin")
+	switch command {
+	case "fmt":
+		xml.CliFormat(args)
+	case "json":
+		xml.CliToJson(args)
+	case "csv":
+		xml.CliToCsv(args)
+	case "query":
+		xml.CliQuery(args)
+	case "soap":
+		xml.CliSoap(args)
+	case "call":
+		xml.CliSoapQuick(args)
+	case "demo":
+		target := "all"
+		if len(args) > 0 {
+			target = args[0]
+		}
+		RunDemos(target)
+	default:
+		fmt.Printf("Error: Comando desconocido '%s'\n", command)
+		printHelp()
+		os.Exit(1)
+	}
+}
+
+func printHelp() {
+	fmt.Println("r2/xml - The Enterprise XML Swiss Army Knife")
+	fmt.Println("Uso: r2xml [comando] [argumentos]")
+	fmt.Println("\nComandos:")
+	fmt.Println("  fmt   <file>          : Formatear/Embellecer XML (Pretty Print)")
+	fmt.Println("  json  <file>          : Convertir XML a JSON")
+	fmt.Println("  csv   <file> --path=X : Convertir lista XML a CSV (Flatten)")
+	fmt.Println("  query <file> <xpath>  : Ejecutar consulta XPath")
+	fmt.Println("  soap  <config.json>   : Ejecutar request SOAP desde definición JSON")
+	fmt.Println("  call  [flags]         : Ejecutar request SOAP rápido con parámetros")
+	fmt.Println("        --url=... --action=... --ns=... --auth=wsse --user=... --pass=...")
+	fmt.Println("        --data=\"Key=Val\" --data=\"Nested/Key=Val\"")
+	fmt.Println("  demo                  : Ejecutar demos internas")
+	fmt.Println("  demo [nombre]         : Ejecutar demo específica")
+
+	fmt.Println("\nExample call")
+	fmt.Println("  r2xml call --url=http://www.dneonline.com/calculator.asmx --action=Add --ns=http://tempuri.org/ --data=\"intA=3\" --data=\"intB=4\"")
 }

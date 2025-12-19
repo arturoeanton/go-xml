@@ -77,7 +77,7 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 		EndpointURL: endpoint,
 		Namespace:   namespace,
 		HttpClient:  &http.Client{Timeout: 30 * time.Second},
-		Headers:     make(map[string]string), // IMPORTANTE: Inicializar mapa
+		Headers:     make(map[string]string),
 		AuthType:    AuthNone,
 	}
 	for _, opt := range opts {
@@ -87,29 +87,34 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 }
 
 // Call ejecuta una acción SOAP.
-func (c *SoapClient) Call(action string, payload map[string]any) (*OrderedMap, error) {
+// payload puede ser *OrderedMap (respeta orden) o map[string]any (ordena alfabéticamente).
+func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	// 1. Preparar el Payload
-	// Definimos el xmlns en el nodo de acción para que los hijos lo hereden.
 	actionNode := NewMap()
 	actionNode.Put("@xmlns", c.Namespace)
 
-	// Convert payload map to OrderedMap for order preservation (if user passes map)
-	// Ideally user should pass OrderedMap but interface says map[string]any.
-	// We'll iterate sorted keys to be deterministic at least.
-	keys := sortedKeys(payload)
-	for _, k := range keys {
-		actionNode.Put(k, payload[k])
+	// Ingest Payload
+	if payload != nil {
+		if om, ok := payload.(*OrderedMap); ok {
+			om.ForEach(func(k string, v any) bool {
+				actionNode.Put(k, v)
+				return true
+			})
+		} else if m, ok := payload.(map[string]any); ok {
+			keys := sortedKeys(m)
+			for _, k := range keys {
+				actionNode.Put(k, m[k])
+			}
+		} else {
+			return nil, fmt.Errorf("unsupported payload type: %T", payload)
+		}
 	}
 
 	// 2. Construir Envelope Base
 	envelopeMap := NewMap()
 	envelopeMap.Put("@xmlns:soap", "http://schemas.xmlsoap.org/soap/envelope/")
 
-	body := NewMap()
-	body.Put(action, actionNode)
-	envelopeMap.Put("soap:Body", body)
-
-	// 3. Inyectar WS-Security (Si aplica)
+	// 3. Inyectar WS-Security (Si aplica) - Headers van ANTES del Body
 	if c.AuthType == AuthWSSecurity {
 		security := NewMap()
 		security.Put("@xmlns:wsse", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd")
@@ -129,17 +134,22 @@ func (c *SoapClient) Call(action string, payload map[string]any) (*OrderedMap, e
 		envelopeMap.Put("soap:Header", header)
 	}
 
+	// 4. Body
+	body := NewMap()
+	body.Put(action, actionNode)
+	envelopeMap.Put("soap:Body", body)
+
 	envelope := NewMap()
 	envelope.Put("soap:Envelope", envelopeMap)
 
-	// 4. Encode
+	// 5. Encode
 	var buf bytes.Buffer
 	enc := NewEncoder(&buf)
 	if err := enc.Encode(envelope); err != nil {
 		return nil, fmt.Errorf("failed to encode SOAP request: %w", err)
 	}
 
-	// 5. Create Request
+	// 6. Create Request
 	req, err := http.NewRequest("POST", c.EndpointURL, &buf)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -147,7 +157,7 @@ func (c *SoapClient) Call(action string, payload map[string]any) (*OrderedMap, e
 
 	// Headers Base
 	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
-	req.Header.Set("User-Agent", "r2-xml-client/1.0") // Anti-bloqueo
+	req.Header.Set("User-Agent", "r2-xml-client/2.0")
 
 	// Auth Headers (HTTP Level)
 	switch c.AuthType {
@@ -162,17 +172,13 @@ func (c *SoapClient) Call(action string, payload map[string]any) (*OrderedMap, e
 		req.Header.Set(k, v)
 	}
 
-	// 6. SOAPAction Logic (Estricto)
+	// SOAPAction Logic
 	base := c.Namespace
 	if c.SoapActionBase != "" {
 		base = c.SoapActionBase
 	}
-
-	// Limpieza de slashes dobles
 	cleanBase := strings.TrimSuffix(base, "/")
 	cleanAction := strings.TrimPrefix(action, "/")
-
-	// El estándar requiere comillas dobles alrededor de la URL
 	soapActionHeader := fmt.Sprintf("\"%s/%s\"", cleanBase, cleanAction)
 	req.Header.Set("SOAPAction", soapActionHeader)
 
@@ -184,20 +190,33 @@ func (c *SoapClient) Call(action string, payload map[string]any) (*OrderedMap, e
 	defer resp.Body.Close()
 
 	// 8. Parse
-	respMap, err := MapXML(resp.Body) // Returns *OrderedMap now
+	respMap, err := MapXML(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response (status %d): %w", resp.StatusCode, err)
 	}
 
 	// 9. Fault Handling
 	if resp.StatusCode != http.StatusOK {
-		if fault, _ := Query(respMap, "Envelope/Body/Fault"); fault != nil {
+		// Intentamos navegar al Fault. La estructura suele ser Envelope/Body/Fault
+		// Pero al usar MapXML sin unwrapper manual, la root key "soap:Envelope" encapsula todo.
+		// MapXML retorna el objeto root directamente? NO. Revisitando MapXML:
+		// "stack := []*node{{tagName: "", data: root}}" -> devuelve root.
+		// El root tiene una key "soap:Envelope".
+		// Query debería ser "soap:Envelope/soap:Body/soap:Fault" (con nombres reales devueltos por MapXML).
+		// MapXML no limpia namespaces automáticamente en claves, solo en valores hooks.
+		// Las claves retienen "wsse:..." si no hay alias?
+		// "tagName := resolveName(...)". Si no hay alias, usa local? No.
+		// "resolveName": if match -> alias:local. Else -> local.
+		// Espera, xml.Name es {Space, Local}.
+		// resolveName: "return name.Local" if no match.
+		// Entonces las claves son LOCAL NAMES. "Envelope", "Body", "Fault".
+		// EXCEPTO si registramos namespaces. En default config map is empty.
+		// Entonces claves son "Envelope", "Body", "Fault".
+
+		fault, _ := Query(respMap, "Envelope/Body/Fault")
+		if fault != nil {
 			if fMap, ok := fault.(*OrderedMap); ok {
 				return nil, fmt.Errorf("SOAP Fault %d: [%v] %v", resp.StatusCode, fMap.Get("faultcode"), fMap.Get("faultstring"))
-			}
-			// Fallback for legacy map (unlikely with MapXML change but good for safety)
-			if fMap, ok := fault.(map[string]any); ok {
-				return nil, fmt.Errorf("SOAP Fault %d: [%v] %v", resp.StatusCode, fMap["faultcode"], fMap["faultstring"])
 			}
 		}
 		return nil, fmt.Errorf("http error %d", resp.StatusCode)

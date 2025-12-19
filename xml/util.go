@@ -1,133 +1,123 @@
 package xml
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
-	"sort"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ============================================================================
-// 1. SERIALIZATION & BINDING
+// 1. CHARSET & SANITIZATION
 // ============================================================================
 
-// MapToJSON converts the XML map or OrderedMap into a JSON string.
-// This helper is particularly useful for debugging purposes or for preparing API responses.
-func MapToJSON(data any) (string, error) {
-	b, err := json.Marshal(data)
-	return string(b), err
+// windows1252Table mapea cada byte (0-255) a su runa UTF-8 correspondiente.
+var windows1252Table = [256]rune{
+	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+	0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F,
+	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+	0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A, 0x4B, 0x4C, 0x4D, 0x4E, 0x4F,
+	0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x5B, 0x5C, 0x5D, 0x5E, 0x5F,
+	0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A, 0x6B, 0x6C, 0x6D, 0x6E, 0x6F,
+	0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
+	// 0x80 - 0xFF (Windows-1252 extension & ISO-8859-1)
+	0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008D, 0x017D, 0x008F,
+	0x0090, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178,
+	0x00A0, 0x00A1, 0x00A2, 0x00A3, 0x00A4, 0x00A5, 0x00A6, 0x00A7, 0x00A8, 0x00A9, 0x00AA, 0x00AB, 0x00AC, 0x00AD, 0x00AE, 0x00AF,
+	0x00B0, 0x00B1, 0x00B2, 0x00B3, 0x00B4, 0x00B5, 0x00B6, 0x00B7, 0x00B8, 0x00B9, 0x00BA, 0x00BB, 0x00BC, 0x00BD, 0x00BE, 0x00BF,
+	0x00C0, 0x00C1, 0x00C2, 0x00C3, 0x00C4, 0x00C5, 0x00C6, 0x00C7, 0x00C8, 0x00C9, 0x00CA, 0x00CB, 0x00CC, 0x00CD, 0x00CE, 0x00CF,
+	0x00D0, 0x00D1, 0x00D2, 0x00D3, 0x00D4, 0x00D5, 0x00D6, 0x00D7, 0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC, 0x00DD, 0x00DE, 0x00DF,
+	0x00E0, 0x00E1, 0x00E2, 0x00E3, 0x00E4, 0x00E5, 0x00E6, 0x00E7, 0x00E8, 0x00E9, 0x00EA, 0x00EB, 0x00EC, 0x00ED, 0x00EE, 0x00EF,
+	0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4, 0x00F5, 0x00F6, 0x00F7, 0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x00FD, 0x00FE, 0x00FF,
 }
 
-// ToJSON scans the XML from the reader and returns the JSON representation.
-// It performs smart simplification:
-// 1. Unwraps the root element if it's a single key.
-// 2. Removes internal metadata (#seq, #comments, etc.).
-// 3. Renames attributes by removing the '@' prefix.
-func ToJSON(r io.Reader, opts ...Option) ([]byte, error) {
-	m, err := MapXML(r, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	// 1. Unwrap Root (if applicable)
-	// MapXML returns a root map like {"root": {...}}. We usually want {...}.
-	var data any = m
-
-	var keys []string
-	if m != nil {
-		keys = m.Keys()
-	}
-
-	nonMetaKeys := 0
-	for _, k := range keys {
-		if !strings.HasPrefix(k, "#") {
-			nonMetaKeys++
-		}
-	}
-
-	// 2. Recursive Cleanup (Metadata removal & Key normalization)
-	data = cleanupRecursive(m)
-
-	return json.Marshal(data)
+// latin1Reader implementa io.Reader para decodificar ISO-8859-1 en vuelo.
+type latin1Reader struct {
+	r io.Reader
 }
 
-func cleanupRecursive(v any) any {
-	switch item := v.(type) {
-	case *OrderedMap:
-		clean := make(map[string]any)
-		item.ForEach(func(k string, val any) bool {
-			// Skip metadata keys
-			if strings.HasPrefix(k, "#") && k != "#text" {
-				return true
-			}
+func (l *latin1Reader) Read(p []byte) (n int, err error) {
+	maxRead := len(p) / 4
+	if maxRead == 0 && len(p) > 0 {
+		maxRead = 1
+	}
+	buf := make([]byte, maxRead)
+	nRead, errRead := l.r.Read(buf)
 
-			// Recursively clean value first
-			cleanVal := cleanupRecursive(val)
-
-			// Normalize Key: Remove '@' from attributes
-			newKey := k
-			if strings.HasPrefix(k, "@") {
-				newKey = strings.TrimPrefix(k, "@")
-			}
-
-			// Clean #text if it's the ONLY thing (optional, currently not doing full flattening to avoid ambiguity)
-			// But for now, we just assign.
-			clean[newKey] = cleanVal
-			return true
-		})
-		return clean
-	case map[string]any:
-		clean := make(map[string]any, len(item))
-		for k, val := range item {
-			// Skip metadata keys
-			if strings.HasPrefix(k, "#") && k != "#text" {
-				continue
-			}
-
-			// Recursively clean value first
-			cleanVal := cleanupRecursive(val)
-
-			// Normalize Key: Remove '@' from attributes
-			newKey := k
-			if strings.HasPrefix(k, "@") {
-				newKey = strings.TrimPrefix(k, "@")
-			}
-
-			clean[newKey] = cleanVal
+	bytesWritten := 0
+	for i := 0; i < nRead; i++ {
+		r := windows1252Table[buf[i]]
+		if bytesWritten+utf8.RuneLen(r) > len(p) {
+			break
 		}
-		return clean
-	case []any:
-		list := make([]any, len(item))
-		for i, val := range item {
-			list[i] = cleanupRecursive(val)
-		}
-		return list
+		w := utf8.EncodeRune(p[bytesWritten:], r)
+		bytesWritten += w
+	}
+	return bytesWritten, errRead
+}
+
+// charsetReader inyecta soporte para ISO-8859-1 en el decodificador XML.
+func charsetReader(charset string, input io.Reader) (io.Reader, error) {
+	charset = strings.ToLower(charset)
+	switch charset {
+	case "iso-8859-1", "latin1", "windows-1252", "cp1252":
+		return &latin1Reader{r: input}, nil
+	case "utf-8", "utf8":
+		return input, nil
 	default:
-		return item
+		return nil, fmt.Errorf("unsupported charset: %s", charset)
 	}
 }
 
-// MapToStruct converts the dynamic map into a user-defined struct.
-// It uses JSON serialization as an intermediate layer, which is the cleanest
-// and most robust approach to map dynamic keys to struct fields (respecting tags).
-func MapToStruct(data any, result any) error {
-	jsonBytes, err := json.Marshal(data)
+// sanitizeSoup protege tags peligrosos en modo "Soup" (HTML sucio).
+func sanitizeSoup(r io.Reader) io.Reader {
+	data, err := io.ReadAll(r)
 	if err != nil {
-		return err
+		return r
 	}
-	return json.Unmarshal(jsonBytes, result)
+	// Tags que contienen "raw text" en HTML y rompen parsers XML estrictos
+	rawTags := []string{"script", "style", "code", "pre", "textarea"}
+
+	for _, tag := range rawTags {
+		pattern := fmt.Sprintf(`(?is)(<%s(?:>|\s[^>]*>))(.*?)(</%s>)`, tag, tag)
+		re := regexp.MustCompile(pattern)
+		data = re.ReplaceAllFunc(data, func(match []byte) []byte {
+			parts := re.FindSubmatch(match)
+			if len(parts) < 4 {
+				return match
+			}
+			// Envolvemos el contenido en CDATA para protegerlo
+			openTag := parts[1]
+			content := parts[2]
+			closeTag := parts[3]
+
+			// Escape de CDATA anidado si existiese
+			escapedContent := bytes.ReplaceAll(content, []byte("]]>"), []byte("]]]]><![CDATA[>"))
+
+			var buf bytes.Buffer
+			buf.Write(openTag)
+			buf.WriteString("<![CDATA[")
+			buf.Write(escapedContent)
+			buf.WriteString("]]>")
+			buf.Write(closeTag)
+			return buf.Bytes()
+		})
+	}
+	return bytes.NewReader(data)
 }
 
 // ============================================================================
-// 2. TYPE COERCION UTILITIES (SAFE GETTERS)
+// 2. TYPE COERCION (SAFE GETTERS)
 // ============================================================================
 
-// AsString safely converts any value to a string.
-// It handles primitives, maps (JSON representation), and nil (empty string).
+// AsString fuerza la conversión a string.
 func AsString(v any) string {
 	if v == nil {
 		return ""
@@ -142,7 +132,6 @@ func AsString(v any) string {
 	case error:
 		return t.Error()
 	}
-	// Fallback to JSON or standard formatting
 	if reflect.TypeOf(v).Kind() == reflect.Map || reflect.TypeOf(v).Kind() == reflect.Slice {
 		b, _ := json.Marshal(v)
 		return string(b)
@@ -150,8 +139,7 @@ func AsString(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// AsInt attempts to convert any value to an int.
-// Returns 0 if conversion fails. Supports strings like "123", floats (truncated), and bools (1/0).
+// AsInt fuerza la conversión a int (0 si falla).
 func AsInt(v any) int {
 	switch t := v.(type) {
 	case int:
@@ -170,8 +158,7 @@ func AsInt(v any) int {
 	return 0
 }
 
-// AsFloat attempts to convert any value to a float64.
-// Returns 0.0 if conversion fails.
+// AsFloat fuerza la conversión a float64.
 func AsFloat(v any) float64 {
 	switch t := v.(type) {
 	case float64:
@@ -185,16 +172,24 @@ func AsFloat(v any) float64 {
 	return 0.0
 }
 
-// AsBool parses a boolean leniently.
-// True: true, "true", "1", "yes", "on", "ok".
-// False: everything else.
+// AsBool fuerza la conversión a bool.
 func AsBool(v any) bool {
 	s := strings.ToLower(fmt.Sprintf("%v", v))
 	return s == "true" || s == "1" || s == "yes" || s == "on" || s == "ok"
 }
 
-// AsTime parses a string into time.Time using a list of potential layouts.
-// Default layouts: RFC3339, YYYY-MM-DD, and generic SQL timestamps.
+// AsSlice garantiza retornar un []any.
+func AsSlice(v any) []any {
+	if v == nil {
+		return []any{}
+	}
+	if list, ok := v.([]any); ok {
+		return list
+	}
+	return []any{v}
+}
+
+// AsTime intenta parsear una fecha con varios layouts comunes.
 func AsTime(v any, layouts ...string) (time.Time, error) {
 	s := AsString(v)
 	if len(layouts) == 0 {
@@ -213,251 +208,28 @@ func AsTime(v any, layouts ...string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("unable to parse time: %s", s)
 }
 
-// AsSlice guarantees the return of a []any.
-// If the input is nil, returns empty slice.
-// If the input is a single element, returns a slice with that element.
-func AsSlice(v any) []any {
-	if v == nil {
-		return []any{}
-	}
-	if list, ok := v.([]any); ok {
-		return list
-	}
-	return []any{v}
-}
-
 // ============================================================================
-// 3. MAP INSPECTION & FILTERING
+// 3. GLOBAL HELPERS
 // ============================================================================
 
-// Keys returns a sorted list of all keys in the map or OrderedMap.
-func Keys(data any) []string {
-	if om, ok := data.(*OrderedMap); ok {
-		return om.Keys()
-	}
-	if m, ok := data.(map[string]any); ok {
-		keys := make([]string, 0, len(m))
-		for k := range m {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		return keys
-	}
-	return nil
-}
-
-// Attributes returns only the keys that represent XML attributes (starting with "@").
-func Attributes(data any) map[string]any {
-	attrs := make(map[string]any)
-	if om, ok := data.(*OrderedMap); ok {
-		om.ForEach(func(k string, v any) bool {
-			if strings.HasPrefix(k, "@") {
-				attrs[k] = v
-			}
-			return true
-		})
-	} else if m, ok := data.(map[string]any); ok {
-		for k, v := range m {
-			if strings.HasPrefix(k, "@") {
-				attrs[k] = v
-			}
-		}
-	}
-	return attrs
-}
-
-// Children returns only the keys that represent child nodes (excluding attributes and #text).
-func Children(data any) map[string]any {
-	children := make(map[string]any)
-	if om, ok := data.(*OrderedMap); ok {
-		om.ForEach(func(k string, v any) bool {
-			if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
-				children[k] = v
-			}
-			return true
-		})
-	} else if m, ok := data.(map[string]any); ok {
-		for k, v := range m {
-			if !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
-				children[k] = v
-			}
-		}
-	}
-	return children
-}
-
-// Has checks if a key exists in the map or OrderedMap.
-func Has(data any, key string) bool {
-	if om, ok := data.(*OrderedMap); ok {
-		return om.Has(key)
-	}
-	if m, ok := data.(map[string]any); ok {
-		_, exists := m[key]
-		return exists
-	}
-	return false
-}
-
-// Pick returns a new map containing only the specified keys.
-func Pick(data any, keys ...string) map[string]any {
-	result := make(map[string]any)
-	if om, ok := data.(*OrderedMap); ok {
-		for _, k := range keys {
-			if v := om.Get(k); v != nil {
-				result[k] = v
-			}
-		}
-	} else if m, ok := data.(map[string]any); ok {
-		for _, k := range keys {
-			if v, ok := m[k]; ok {
-				result[k] = v
-			}
-		}
-	}
-	return result
-}
-
-// Omit returns a new map excluding the specified keys.
-func Omit(data any, keys ...string) map[string]any {
-	result := make(map[string]any)
-	ignored := make(map[string]bool)
-	for _, k := range keys {
-		ignored[k] = true
-	}
+// ToJSON converts the XML map or OrderedMap into a JSON string.
+// This helper is particularly useful for debugging purposes or for preparing API responses.
+func ToJSON(data any) (string, error) {
 
 	if om, ok := data.(*OrderedMap); ok {
-		om.ForEach(func(k string, v any) bool {
-			if !ignored[k] {
-				result[k] = v
-			}
-			return true
-		})
-	} else if m, ok := data.(map[string]any); ok {
-		for k, v := range m {
-			if !ignored[k] {
-				result[k] = v
-			}
-		}
+		return om.ToJSON()
 	}
-	return result
-}
-
-// ============================================================================
-// 4. STRUCTURAL TRANSFORMATION (MERGE, CLONE, FLATTEN)
-// ============================================================================
-
-// Clone creates a deep copy of the map, ensuring no reference sharing.
-// Crucial for immutable operations or concurrent access.
-func Clone(data any) any {
-	// JSON marshaling is the laziest but most robust way to deep clone generic maps
-	b, _ := json.Marshal(data)
-	if _, ok := data.(*OrderedMap); ok {
-		// return as map[string]any because Clone signature was mapped,
-		// but wait, we want to clone INTO OrderedMap if source was OrderedMap?
-		// Rehydrating OrderedMap from JSON is tricky without custom unmarshal logic.
-		// For now, let's return map[string]any or interface{}
-		// TODO: Implement UnmarshalJSON for OrderedMap if strict cloning is needed.
-
-		// If we return *OrderedMap, we need to populate it.
-		// Since we don't have UnmarshalJSON for OrderedMap yet, we might lose order on clone?
-		// Actually, let's stick to simple map compatible clone.
-		var m map[string]any
-		json.Unmarshal(b, &m)
-		return m
+	if r, ok := data.(io.Reader); ok {
+		b, err := ReaderToJSON(r)
+		return string(b), err
 	}
 
-	var copyMap map[string]any
-	json.Unmarshal(b, &copyMap)
-	return copyMap
-}
-
-// Merge recursively merges the 'override' map into the 'base' map.
-// If a key exists in both maps and they are sub-maps, they are merged recursively.
-// Otherwise, the value in 'base' is overwritten by the value from 'override'.
-// Note: This modifies 'base' in place.
-// Supports *OrderedMap and map[string]any
-func Merge(base, override any) {
-	// Strategy: Handle combinations.
-	// Since we are moving to OrderedMap priority, we should ideally support merging into OrderedMap.
-
-	if baseOM, ok := base.(*OrderedMap); ok {
-		if overrideOM, ok := override.(*OrderedMap); ok {
-			overrideOM.ForEach(func(k string, v any) bool {
-				if vOM, ok := v.(*OrderedMap); ok {
-					if baseVal := baseOM.Get(k); baseVal != nil {
-						if baseValOM, ok := baseVal.(*OrderedMap); ok {
-							Merge(baseValOM, vOM)
-							return true
-						}
-					}
-				}
-				baseOM.Put(k, v)
-				return true
-			})
-		}
-		// Handle merging legacy map into OrderedMap?
-		if overrideMap, ok := override.(map[string]any); ok {
-			for k, v := range overrideMap {
-				baseOM.Put(k, v) // Shallow merge/overwrite for mixed types
-			}
-		}
-	} else if baseMap, ok := base.(map[string]any); ok {
-		// Legacy Base
-		if overrideMap, ok := override.(map[string]any); ok {
-			for k, v := range overrideMap {
-				if vMap, ok := v.(map[string]any); ok {
-					if bMap, ok := baseMap[k].(map[string]any); ok {
-						Merge(bMap, vMap)
-						continue
-					}
-				}
-				baseMap[k] = v
-			}
-		}
-	}
-}
-
-// MergeDeep is an alias for Merge (included for API clarity regarding deep merging).
-func MergeDeep(base, override any) {
-	Merge(base, override)
-}
-
-// Flatten converts a nested map into a single-level map with dot notation.
-// Example: {"a": {"b": 1}} -> {"a.b": 1}
-// Useful for exporting to CSV or searching.
-func Flatten(data any) map[string]any {
-	result := make(map[string]any)
-	flattenRecursive(data, "", result)
-	return result
-}
-
-func flattenRecursive(data any, prefix string, result map[string]any) {
-	if om, ok := data.(*OrderedMap); ok {
-		om.ForEach(func(k string, v any) bool {
-			key := k
-			if prefix != "" {
-				key = prefix + "." + k
-			}
-			flattenRecursive(v, key, result)
-			return true
-		})
-	} else if m, ok := data.(map[string]any); ok {
-		for k, v := range m {
-			key := k
-			if prefix != "" {
-				key = prefix + "." + k
-			}
-			flattenRecursive(v, key, result)
-		}
-	} else {
-		if prefix != "" {
-			result[prefix] = data
-		}
-	}
+	b, err := json.Marshal(data)
+	return string(b), err
 }
 
 // Text extracts ALL text content recursively from a node and its children.
-// Equivalent to jQuery's .text(). Useful for search indexing.
+// Equivalent to jQuery's .text().
 func Text(data any) string {
 	var sb strings.Builder
 	textRecursive(data, &sb)
@@ -468,16 +240,12 @@ func textRecursive(data any, sb *strings.Builder) {
 	if data == nil {
 		return
 	}
-
 	switch v := data.(type) {
 	case string:
 		sb.WriteString(v)
-
 	case int, float64, bool:
 		sb.WriteString(fmt.Sprintf("%v", v))
-
 	case *OrderedMap:
-		// ESTRATEGIA 1: Si existe #seq, ES LA FUENTE DE LA VERDAD (Ordenada)
 		if seqAny := v.Get("#seq"); seqAny != nil {
 			if seq, ok := seqAny.([]any); ok {
 				for _, item := range seq {
@@ -486,19 +254,15 @@ func textRecursive(data any, sb *strings.Builder) {
 				return
 			}
 		}
-
-		// ESTRATEGIA 2: Fallback
 		if t := v.Get("#text"); t != nil {
 			sb.WriteString(fmt.Sprintf("%v", t))
 		}
-
 		v.ForEach(func(k string, val any) bool {
 			if !strings.HasPrefix(k, "@") && k != "#text" && k != "#seq" {
 				textRecursive(val, sb)
 			}
 			return true
 		})
-
 	case map[string]any:
 		if seq, ok := v["#seq"].([]any); ok {
 			for _, item := range seq {
@@ -506,56 +270,17 @@ func textRecursive(data any, sb *strings.Builder) {
 			}
 			return
 		}
-
 		if t, ok := v["#text"]; ok {
 			sb.WriteString(fmt.Sprintf("%v", t))
 		}
-
-		keys := Keys(v)
-		for _, k := range keys {
+		for k, val := range v {
 			if !strings.HasPrefix(k, "@") && k != "#text" && k != "#seq" {
-				textRecursive(v[k], sb)
+				textRecursive(val, sb)
 			}
 		}
-
 	case []any:
 		for _, item := range v {
 			textRecursive(item, sb)
 		}
 	}
-}
-
-// ============================================================================
-// 5. FUNCTIONAL HELPERS (LIST PROCESSING)
-// ============================================================================
-
-// MapSlice applies a transformation function to each element in a slice.
-func MapSlice[T any, R any](input []T, transform func(T) R) []R {
-	result := make([]R, len(input))
-	for i, v := range input {
-		result[i] = transform(v)
-	}
-	return result
-}
-
-// FilterSlice returns a new slice containing only elements that satisfy the predicate.
-func FilterSlice[T any](input []T, predicate func(T) bool) []T {
-	var result []T
-	for _, v := range input {
-		if predicate(v) {
-			result = append(result, v)
-		}
-	}
-	return result
-}
-
-// FindFirst returns the first element satisfying the predicate, or zero value if not found.
-func FindFirst[T any](input []T, predicate func(T) bool) (T, bool) {
-	for _, v := range input {
-		if predicate(v) {
-			return v, true
-		}
-	}
-	var zero T
-	return zero, false
 }
