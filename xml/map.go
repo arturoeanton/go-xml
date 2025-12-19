@@ -396,3 +396,57 @@ func (om *OrderedMap) Dump() string {
 	}
 	return out.String()
 }
+
+// ---------------------------------------------------------
+// 6. Mutation (Rename / Move)
+// ---------------------------------------------------------
+
+// Rename cambia el nombre de una clave manteniendo su posición y valor.
+func (om *OrderedMap) Rename(oldKey, newKey string) error {
+	if _, exists := om.values[newKey]; exists {
+		return fmt.Errorf("destination key '%s' already exists", newKey)
+	}
+	val, exists := om.values[oldKey]
+	if !exists {
+		return fmt.Errorf("source key '%s' not found", oldKey)
+	}
+
+	// Update Map
+	delete(om.values, oldKey)
+	om.values[newKey] = val
+
+	// Update Order
+	for i, k := range om.keys {
+		if k == oldKey {
+			om.keys[i] = newKey
+			return nil
+		}
+	}
+	return nil
+}
+
+// Move mueve un valor de una ruta a otra (Cut & Paste).
+func (om *OrderedMap) Move(srcPath, dstPath string) error {
+	val := om.GetPath(srcPath)
+	if val == nil {
+		return fmt.Errorf("source path '%s' not found", srcPath)
+	}
+
+	// 1. Paste (Set crea deep paths si es necesario)
+	om.Set(dstPath, val)
+
+	// 2. Cut (Remove Source)
+	parts := strings.Split(srcPath, "/")
+	if len(parts) == 1 {
+		om.Remove(parts[0])
+	} else {
+		parentPath := strings.Join(parts[:len(parts)-1], "/")
+		childKey := parts[len(parts)-1]
+
+		parent := om.GetNode(parentPath)
+		if parent != nil {
+			parent.Remove(childKey)
+		}
+	}
+	return nil
+}

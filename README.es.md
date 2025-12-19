@@ -1,25 +1,22 @@
-# go-xml: El Parser XML Empresarial de Archivo Único
-> Deja de escribir structs para XML dinámico.
+# go-xml: El Parser XML Determinista Empresarial (v2.0)
+> **Actualización v2.0**: Ahora impulsado por `OrderedMap` para 100% de determinismo y preservación de orden.
 
-`go-xml` (v1.0) es un parser y serializador de XML robusto y sin esquema para Go. Está diseñado para manejar XML complejo, dinámico o "sucio" sin necesidad de definir structs rígidos de Go para cada etiqueta. Ofrece una solución completa que va desde mapas dinámicos en memoria hasta streaming de alto rendimiento para archivos de gigabytes.
+`go-xml` es un parser y serializador XML robusto y sin esquemas para Go. A diferencia de los parsers estándar que fuerzan a definir structs o pierden el orden de los elementos usando mapas estándar, `go-xml` preserva la estructura exacta, atributos y orden usando un `OrderedMap` personalizado.
+
+Está diseñado para **Integración Empresarial** (Bancos, Gobierno, SOAP) donde el orden importa (ej: validación XSD, firmas SOAP).
 
 ## 🚀 Características Principales
 
-*   **Parseo Sin Esquema**: el contenido se parsea en `map[string]any`, permitiéndote recorrer estructuras XML desconocidas dinámicamente.
+*   **Parseo Determinista**: Parsea XML en `*OrderedMap`, preservando el orden de inserción de elementos y atributos.
+*   **API OrderedMap**: API fluida para acceso y manipulación profunda (`m.Set("Body/Auth", val)`).
 *   **Soporte de Streaming**:
-    *   **Decoder**: Procesa archivos de varios gigabytes con uso constante de memoria usando `Stream[T]` Genérico.
-    *   **Encoder**: Escribe XML directamente a un `io.Writer` para procesamiento eficiente en tuberías.
-*   **Robusto y Permisivo**: Capaz de leer HTML/XML "sopa" (tags sin cerrar como `<br>`, `<meta>`) con modo permisivo. Usa `EnableExperimental()` para activar el Modo Soup (sanitización automática de `<script>`, normalización a minúsculas y soporte de tags HTML vacíos).
-*   **Consultas Avanzadas**: Utilidades de consulta profunda estilo XPath (ej: `users/user[0]/name`).
-    *   **XPath-Lite**: Soporte para búsqueda profunda `//nodo`, operadores `[price>10]`, y funciones `[contains(name,'Go')]`.
-    *   **Wildcards**: Itera sobre claves dinámicas con `*`.
-    *   **Funciones Personalizadas**: Registra tus propias funciones Go para filtrar claves (`func:isNumeric`).
-*   **Motor de Validación**: Define reglas de negocio para tus datos (Regex, Rango, Enum, Tipo).
-*   **Atributos como Datos**: Los atributos son tratados como ciudadanos de primera clase, accesibles mediante una convención de prefijo `@`.
-*   **Namespaces Helpers**: Registra alias para trabajar con claves cortas en lugar de URLs completas.
-*   **Hooks de Valor**: Define lógica personalizada para transformar strings en tipos nativos de Go (Fechas, Enums, etc.) durante el parseo.
-*   **CLI Integrado**: Incluye una herramienta de terminal para consultas rápidas de XML.
-*   **Charsets Legados**: Soporte nativo para ISO-8859-1 y Windows-1252 mediante `EnableLegacyCharsets()`.
+    *   **Decoder**: Procesa archivos de multi-gigabytes con uso de memoria constante usando `Stream[T]` Genérico.
+    *   **Encoder**: Escribe XML directamente a `io.Writer` desde `*OrderedMap` (cumplimiento estricto XSD).
+*   **Robusto y Permisivo**: "Modo Sopa" para HTML sucio (`<br>`, `<meta>`, tags sin cerrar).
+*   **Consultas Avanzadas**: Consultas profundas tipo XPath (`Query(m, "users/user[0]/name")`).
+*   **Motor de Validación**: Define reglas de negocio (Regex, Rango, Enum, Tipo).
+*   **Herramienta CLI (r2xml)**: Navaja suiza integrada para XML (Format, JSON, CSV, SOAP).
+*   **Cliente SOAP Dinámico**: Llama servicios SOAP 1.1 sin generar código. Soporta **mTLS** y **WS-Security**.
 
 ## 📦 Instalación
 
@@ -29,8 +26,8 @@ go get github.com/arturoeanton/go-xml
 
 ## 📖 Guía de Uso
 
-### 1. Parseo Básico (MapXML)
-La función principal `MapXML` lee datos en un mapa dinámico.
+### 1. Parseo Básico (OrderedMap)
+La función principal `MapXML` retorna un `*OrderedMap`.
 
 ```go
 package main
@@ -38,208 +35,121 @@ package main
 import (
     "fmt"
     "strings"
-    "github.com/arturoeanton/go-xml/xml"
+    "github.com/arturoeanton/go-xml/xml" 
 )
 
 func main() {
     xmlData := `<library><book id="1">El Principito</book></library>`
 
-    // Parsear sin definir structs
-    m, err := xml.MapXML(strings.NewReader(xmlData))
-    if err != nil {
-        panic(err)
-    }
+    // 1. Parsear a OrderedMap
+    m, _ := xml.MapXML(strings.NewReader(xmlData))
 
-    // Acceso manual a los datos
-    lib := m["library"].(map[string]any)
-    book := lib["book"].(map[string]any)
+    // 2. Acceso Tipado Seguro (Sin pánicos)
+    title := m.String("library/book/#text") // "El Principito"
+    id := m.String("library/book/@id")      // "1" (Atributos usan '@')
 
-    fmt.Println("Título:", book["#text"]) // "El Principito"
-    fmt.Println("ID:", book["@id"])       // "1" (Los atributos usan prefijo '@')
+    fmt.Printf("Libro: %s (ID: %s)\n", title, id)
 }
 ```
 
-### 2. Manejo de Arrays JSON (ForceArray)
-XML es ambiguo respecto a los arrays (un hijo único vs. una lista de un hijo). Usa `ForceArray` para asegurar que etiquetas específicas sean siempre tratadas como slices `[]any`.
+### 2. Creación y Modificación de XML
+Crear estructuras XML es fluido y legible.
 
 ```go
-// <library><book>Uno</book></library>
-m, _ := xml.MapXML(r, xml.ForceArray("book"))
+m := xml.NewMap()
 
-// Ahora 'book' está garantizado de ser []any, incluso si solo hay un libro.
-books := m["library"].(map[string]any)["book"].([]any)
+// Setters Fluidos Profundos
+m.Set("Order/ID", "1001")
+m.Set("Order/Customer/Name", "Alice")
+m.Set("Order/Customer/@id", "C55") // Atributo
+
+// Serializar (Salida Determinista)
+s, _ := xml.Marshal(m, xml.WithPrettyPrint())
+fmt.Println(s)
+// Salida:
+// <Order>
+//   <ID>1001</ID>
+//   <Customer id="C55">
+//     <Name>Alice</Name>
+//   </Customer>
+// </Order>
 ```
 
-### 3. Namespaces
-Simplifica las claves mapeadas desde XML con namespaces registrando alias.
-
-```go
-// <root xmlns:h="http://w3.org/html"><h:table>Datos</h:table></root>
-m, _ := xml.MapXML(r, xml.RegisterNamespace("html", "http://w3.org/html"))
-
-// Acceder como "html:table" en lugar de la URL completa
-val, _ := xml.Query(m, "root/html:table/#text")
-```
-
-### 4. Hooks e Inferencia de Tipos
-Convierte automáticamente strings a tipos nativos de Go o aplica lógica personalizada.
-
-```go
-// <log><date>2025-12-31</date><count>99</count></log>
-
-// 1. Hook Personalizado para Fechas
-dateHook := func(s string) any {
-    t, _ := time.Parse("2006-01-02", s)
-    return t
-}
-
-m, _ := xml.MapXML(r, 
-    xml.WithValueHook("date", dateHook),
-    xml.EnableExperimental(), // Infiere automáticamente "99" como int
-)
-
-dateVal, _ := xml.Query(m, "log/date") // Devuelve time.Time
-```
-
-### 5. Streaming (Archivos Grandes)
-Para conjuntos de datos enormes, evita cargar todo en memoria.
-
-#### Streaming Decoder (Generics)
-Usa `Stream[T]` para iterar elemento por elemento con tipado fuerte para los nodos específicos que necesitas.
-
-```go
-type Order struct {
-    ID    int     `xml:"id"`
-    Total float64 `xml:"total"`
-}
-
-func main() {
-    file, _ := os.Open("huge_orders.xml")
-    defer file.Close()
-
-    // Stream de elementos <Order> uno por uno
-    stream := xml.NewStream[Order](file, "Order")
-
-    for order := range stream.Iter() {
-        fmt.Printf("Procesando Orden %d: $%.2f\n", order.ID, order.Total)
-    }
-
-    // O con Context para cancelación/timeout:
-    // ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-    // defer cancel()
-    // for order := range stream.IterWithContext(ctx) { ... }
-}
-```
-
-#### Streaming Encoder
-Escribe XML directamente a un `io.Writer` (como `http.ResponseWriter` u `os.File`) eficientemente.
-
-```go
-data := map[string]any{
-    "feed": map[string]any{
-        "@version": "2.0",
-        "title":    "Blog Tech",
-    },
-}
-
-// Escribe directamente a stdout con indentación
-xml.NewEncoder(os.Stdout, xml.WithPrettyPrint()).Encode(data)
-```
-
-### 6. Reglas de Validación
-Valida datos dinámicos contra reglas de negocio sin structs.
-
-```go
-rules := []xml.Rule{
-    {Path: "user/age",  Type: "int",    Min: 18},
-    {Path: "user/role", Type: "string", Enum: []string{"admin", "user"}},
-    {Path: "user/email", Type: "string", Regex: `^.+@.+\..+$`},
-}
-
-errors := xml.Validate(data, rules)
-if len(errors) > 0 {
-    fmt.Println("Validación fallida:", errors)
-}
-```
-
-### 7. Exportación JSON en una línea
-Convierte XML directamente a JSON en un solo paso (útil para APIs).
-
-```go
-jsonBytes, _ := xml.ToJSON(r)
-fmt.Println(string(jsonBytes))
-```
-
-### 8. Manejo de Errores
-El parser retorna `*xml.SyntaxError` que incluye el número de línea donde ocurrió el error, facilitando la depuración.
-
-```go
-_, err := xml.MapXML(r)
-if err != nil {
-    if syntaxErr, ok := err.(*xml.SyntaxError); ok {
-        fmt.Printf("Error en línea %d: %s\n", syntaxErr.Line, syntaxErr.Msg)
-    }
-}
-```
-
-### 9. Soporte de Charsets Legados (ISO-8859-1 / Windows-1252)
-El parser maneja UTF-8 automáticamente. Para sistemas legados (bancos, gobierno) que envían ISO-8859-1 o Windows-1252, usa `EnableLegacyCharsets()`.
-
-```go
-// El header dice encoding="ISO-8859-1"
-m, err := xml.MapXML(r, xml.EnableLegacyCharsets())
-// El parser inyecta automáticamente el lector de charsets correcto
-```
-
-### 10. Cliente SOAP Dinámico
-*Nuevo en v1.2*: Consume servicios SOAP 1.1 dinámicamente sin generar structs.
-
-```go
-// 1. Crear Cliente
-client := xml.NewSoapClient(
-    "http://example.com/soap", 
-    "http://tempuri.org/", 
-    xml.WithBasicAuth("user", "pass"),
-    xml.WithHeader("X-Custom-Header", "Valor"), // Nuevo en v1.2+
-)
-
-// 2. Llamar Acción
-// <m:GetUser><id>123</id></m:GetUser>
-resp, err := client.Call("GetUser", map[string]any{
-    "id": 123,
-})
-
-// 3. Acceder a Datos
-name, _ := xml.Query(resp, "Envelope/Body/GetUserResponse/User/Name")
-```
-
-Soporta:
-- **Auth**: Basic, Bearer, WS-Security (UsernameToken).
-- **Opciones**: Headers Custom (`WithHeader`), Timeout (`WithTimeout`).
-- **Faults**: Parsea automáticamente `soap:Fault` en errores de Go.
-
-## 🛠 Herramienta CLI
-Puedes usar `main.go` como una herramienta CLI independiente para consultar archivos XML desde la terminal.
+### 3. Herramienta CLI (r2xml)
+La librería actúa como una herramienta CLI independiente.
 
 ```bash
-# Convertidor: XML a JSON
-go run main.go --json data.xml > data.json
-# O vía pipe
-cat data.xml | go run main.go --json > data.json
+# Pretty Print / Formatear
+go run main.go fmt sucio.xml
+
+# Convertir a JSON
+go run main.go json data.xml
+
+# Convertir Lista a CSV (Aplanar)
+go run main.go csv pedidos.xml --path="orders/order" > reporte.csv
+
+# Consultar (XPath-lite)
+go run main.go query data.xml "users/user[id=1]/name"
+
+# Ejecutar Request SOAP desde Config
+go run main.go soap request.json
 ```
 
-## ⚙️ Detalles de Implementación
+### 4. Cliente SOAP Dinámico (con mTLS)
+Consume servicios SOAP dinámicamente.
 
-### Arquitectura
-La librería está diseñada como una solución de **Archivo Único** (conceptualmente) para minimizar el infierno de dependencias, aunque organizada internamente.
-1.  **Núcleo del Parser**: Implementa una máquina de estados basada en pila que procesa `xml.Token`. Normaliza las peculiaridades de XML en una estructura de mapa consistente tipo JSON.
-2.  **Inferencia de Tipos**: Si se habilita (`EnableExperimental`), detecta automáticamente números y booleanos (ej: "123" se convierte en `int(123)` en lugar de string).
+```go
+// 1. Configurar
+client := xml.NewSoapClient(
+    "https://secure-bank.com/service", 
+    "http://tempuri.org/",
+    xml.WithClientCertificate("client.crt", "client.key"), // Soporte mTLS
+    xml.WithBasicAuth("user", "pass"),
+)
 
-### Mapeo de Estructura de Datos
-La representación interna sigue estas convenciones para mapear XML a `map[string]any`:
+// 2. Llamar (El Payload respeta el orden de claves)
+payload := xml.NewMap()
+payload.Put("FromAccount", "123")
+payload.Put("ToAccount", "456")
+payload.Put("Amount", 100.50)
 
-*   **Elementos**: Se convierten en claves del diccionario (`<tag>` -> `"tag"`).
-*   **Atributos**: Se convierten en claves con prefijo `@` (`id="1"` -> `"@id": "1"`).
-*   **Contenido de Texto**: Se almacena en la clave especial `"#text"`.
-*   **Comentarios**: Se almacenan en `"#comments"` (lista de strings).
-*   **CDATA**: Se almacena en `"#cdata"`.
+resp, err := client.Call("TransferFunds", payload)
+
+// 3. Verificar Resultado
+status := resp.String("Envelope/Body/TransferResponse/Status")
+```
+
+### 5. Características Avanzadas
+
+#### Manejo de Arrays
+Usa `ForceArray` para asegurar que tags específicos sean siempre listas.
+```go
+m, _ := xml.MapXML(r, xml.ForceArray("item"))
+items := m.List("order/item") // Siempre []*OrderedMap
+```
+
+#### Mutación de Nodos
+Refactoriza tus datos fácilmente.
+```go
+m.Rename("legacy_key", "new_key")
+m.Move("temp/data", "final/destination")
+```
+
+#### Streaming (Archivos Grandes)
+Procesa GBs de datos con memoria constante.
+```go
+stream := xml.NewStream[Order](file, "Order")
+for order := range stream.Iter() {
+    process(order)
+}
+```
+
+## ⚙️ Arquitectura: OrderedMap
+
+En v2.0, reemplazamos `map[string]any` con `*OrderedMap`.
+- **¿Por qué?** El mapa nativo de Go aleatoriza el orden de iteración. XML (XSD) y SOAP a menudo requieren un orden estricto de elementos.
+- **¿Cómo?** `OrderedMap` mantiene un slice de claves `[]string` junto con el mapa.
+- **Beneficio**: Leer XML -> Modificar -> Escribir XML = **Estructura Idéntica**.
+
+## 📄 Licencia
+MIT

@@ -2,6 +2,7 @@ package xml
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"strings"
@@ -24,11 +25,31 @@ type SoapClient struct {
 	SoapActionBase string
 	Headers        map[string]string
 
-	// Configuración de Auth
 	AuthType     string
 	AuthUsername string
 	AuthPassword string
 	AuthToken    string
+
+	// --- mTLS Config (NUEVO) ---
+	CertFile string
+	KeyFile  string
+	Insecure bool // Skip Verify
+}
+
+// --- Nuevas Opciones mTLS ---
+
+// WithClientCertificate habilita mTLS usando archivos PEM (.crt y .key).
+func WithClientCertificate(certFile, keyFile string) ClientOption {
+	return func(s *SoapClient) {
+		s.CertFile = certFile
+		s.KeyFile = keyFile
+	}
+}
+
+// WithInsecureSkipVerify salta la validación del certificado del servidor.
+// Útil para desarrollo (Self-signed).
+func WithInsecureSkipVerify() ClientOption {
+	return func(s *SoapClient) { s.Insecure = true }
 }
 
 // ClientOption para configuración funcional.
@@ -83,6 +104,39 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 	for _, opt := range opts {
 		opt(client)
 	}
+
+	// === LÓGICA mTLS ===
+	tlsConfig := &tls.Config{}
+	hasTlsConfig := false
+
+	// 1. Cargar Certificado Cliente (PEM)
+	if client.CertFile != "" && client.KeyFile != "" {
+		// Usamos nuestra función wrapper de cert.go
+		cert, err := LoadCert(client.CertFile, client.KeyFile)
+		if err != nil {
+			// Advertencia crítica, pero no panic (para no tumbar apps enteras)
+			fmt.Printf("❌ CRITICAL: Failed to load mTLS certificates: %v\n", err)
+		} else {
+			tlsConfig.Certificates = []tls.Certificate{cert}
+			hasTlsConfig = true
+		}
+	}
+
+	// 2. Insecure Skip Verify
+	if client.Insecure {
+		tlsConfig.InsecureSkipVerify = true
+		hasTlsConfig = true
+	}
+
+	// 3. Aplicar Transporte
+	if hasTlsConfig {
+		// Clonamos el transporte por defecto para no perder configuraciones de Proxy (si hubiera)
+		// Pero como estamos creando uno nuevo, usamos el Transport básico + TLS
+		client.HttpClient.Transport = &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+	}
+
 	return client
 }
 

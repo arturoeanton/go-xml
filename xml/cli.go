@@ -139,8 +139,9 @@ func CliQuery(args []string) {
 }
 
 // 5. SOAP Client (Desde Config JSON)
+// 5. SOAP Client (Desde Config JSON)
 // Permite probar servicios SOAP sin compilar Go.
-// Input: Un JSON con {endpoint, action, payload, auth...}
+// Input: Un JSON con {endpoint, action, payload, auth, cert_file, key_file...}
 func CliSoap(args []string) {
 	r, err := getInputReader(args)
 	if err != nil {
@@ -158,6 +159,12 @@ func CliSoap(args []string) {
 			User string `json:"user"`
 			Pass string `json:"pass"`
 		} `json:"auth"`
+
+		// === NUEVO: Soporte mTLS ===
+		CertFile string `json:"cert_file"` // Ruta al .crt
+		KeyFile  string `json:"key_file"`  // Ruta al .key
+		Insecure bool   `json:"insecure"`  // Ignorar validación servidor
+		Output   string `json:"output"`    // "json" (default) o "xml"
 	}
 
 	dec := json.NewDecoder(r)
@@ -167,10 +174,22 @@ func CliSoap(args []string) {
 
 	// 2. Configurar Cliente
 	opts := []ClientOption{}
+
+	// Auth Headers
 	if cfg.Auth.Type == "wsse" {
 		opts = append(opts, WithWSSecurity(cfg.Auth.User, cfg.Auth.Pass))
 	} else if cfg.Auth.Type == "basic" {
 		opts = append(opts, WithBasicAuth(cfg.Auth.User, cfg.Auth.Pass))
+	}
+
+	// mTLS (Certificados Cliente)
+	if cfg.CertFile != "" && cfg.KeyFile != "" {
+		opts = append(opts, WithClientCertificate(cfg.CertFile, cfg.KeyFile))
+	}
+
+	// Insecure Skip Verify
+	if cfg.Insecure {
+		opts = append(opts, WithInsecureSkipVerify())
 	}
 
 	client := NewSoapClient(cfg.Endpoint, cfg.Namespace, opts...)
@@ -181,8 +200,18 @@ func CliSoap(args []string) {
 		die(err)
 	}
 
-	// 4. Salida
-	fmt.Println(resp.Dump())
+	// === LÓGICA DE SALIDA ===
+	if cfg.Output == "xml" {
+		// Usamos el Marshal del encoder para sacar XML puro
+		s, err := Marshal(resp)
+		if err != nil {
+			die(err)
+		}
+		fmt.Println(s)
+	} else {
+		// Default: JSON Dump
+		fmt.Println(resp.Dump())
+	}
 }
 
 func die(err error) {
