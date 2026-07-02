@@ -104,3 +104,118 @@ func TestReaderToJSON(t *testing.T) {
 		t.Errorf("JSON missing item key: %s", str)
 	}
 }
+
+func TestToJSON_OrderedMap(t *testing.T) {
+	m := NewMap()
+	m.Put("b", 2)
+	m.Put("a", 1)
+
+	got, err := ToJSON(m)
+	if err != nil {
+		t.Fatalf("ToJSON(*OrderedMap) error: %v", err)
+	}
+	want := `{"b":2,"a":1}`
+	if got != want {
+		t.Errorf("ToJSON(*OrderedMap) = %s, want %s", got, want)
+	}
+}
+
+func TestToJSON_Reader(t *testing.T) {
+	got, err := ToJSON(strings.NewReader(`<root><a>1</a></root>`))
+	if err != nil {
+		t.Fatalf("ToJSON(io.Reader) error: %v", err)
+	}
+	if !strings.Contains(got, `"a"`) {
+		t.Errorf("ToJSON(io.Reader) missing expected content: %s", got)
+	}
+}
+
+func TestToJSON_Fallback(t *testing.T) {
+	got, err := ToJSON(map[string]any{"x": 1})
+	if err != nil {
+		t.Fatalf("ToJSON(fallback) error: %v", err)
+	}
+	if got != `{"x":1}` {
+		t.Errorf("ToJSON(fallback) = %s, want {\"x\":1}", got)
+	}
+}
+
+func TestToCSVWithOptions_Delimiter(t *testing.T) {
+	item := NewMap()
+	item.Put("id", "1")
+	item.Put("name", "Widget")
+
+	var buf bytes.Buffer
+	if err := ToCSVWithOptions(&buf, []*OrderedMap{item}, WithDelimiter(';')); err != nil {
+		t.Fatalf("ToCSVWithOptions error: %v", err)
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, "id;name") {
+		t.Errorf("expected ';'-delimited header, got: %s", got)
+	}
+	if !strings.Contains(got, "1;Widget") {
+		t.Errorf("expected ';'-delimited row, got: %s", got)
+	}
+}
+
+func TestToCSVWithOptions_QuoteAll(t *testing.T) {
+	item := NewMap()
+	item.Put("id", "1")
+	item.Put("name", "Widget")
+
+	var buf bytes.Buffer
+	if err := ToCSVWithOptions(&buf, []*OrderedMap{item}, WithQuoteAll(true)); err != nil {
+		t.Fatalf("ToCSVWithOptions error: %v", err)
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, `"id","name"`) {
+		t.Errorf("expected fully-quoted header, got: %s", got)
+	}
+	if !strings.Contains(got, `"1","Widget"`) {
+		t.Errorf("expected fully-quoted row, got: %s", got)
+	}
+}
+
+func TestToCSVWithOptions_Flatten(t *testing.T) {
+	addr := NewMap()
+	addr.Put("city", "Bogota")
+	addr.Put("zip", "110111")
+
+	item := NewMap()
+	item.Put("id", "1")
+	item.Put("address", addr)
+
+	var buf bytes.Buffer
+	if err := ToCSVWithOptions(&buf, []*OrderedMap{item}, WithFlatten(".")); err != nil {
+		t.Fatalf("ToCSVWithOptions error: %v", err)
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, "address.city") || !strings.Contains(got, "address.zip") {
+		t.Errorf("expected flattened headers address.city/address.zip, got: %s", got)
+	}
+	if !strings.Contains(got, "Bogota") || !strings.Contains(got, "110111") {
+		t.Errorf("expected flattened values, got: %s", got)
+	}
+}
+
+func TestToCSVWithOptions_DefaultSkipsNested(t *testing.T) {
+	addr := NewMap()
+	addr.Put("city", "Bogota")
+
+	item := NewMap()
+	item.Put("id", "1")
+	item.Put("address", addr)
+
+	var buf bytes.Buffer
+	if err := ToCSVWithOptions(&buf, []*OrderedMap{item}); err != nil {
+		t.Fatalf("ToCSVWithOptions error: %v", err)
+	}
+
+	got := buf.String()
+	if strings.Contains(got, "city") {
+		t.Errorf("without WithFlatten, nested objects should be skipped, got: %s", got)
+	}
+}

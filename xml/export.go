@@ -1,6 +1,7 @@
 package xml
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -93,6 +94,122 @@ func ToCSV(w io.Writer, nodes []*OrderedMap) error {
 		if _, err := fmt.Fprintln(w, strings.Join(row, ",")); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ============================================================================
+// CSV EXPORT (configurable)
+// ============================================================================
+
+type csvConfig struct {
+	delimiter  rune
+	quoteAll   bool
+	flattenSep string // "" = skip nested objects (ToCSV's current behavior)
+}
+
+// CSVOption configures ToCSVWithOptions.
+type CSVOption func(*csvConfig)
+
+// WithDelimiter sets the field separator (default ',').
+func WithDelimiter(r rune) CSVOption {
+	return func(c *csvConfig) { c.delimiter = r }
+}
+
+// WithQuoteAll forces every field to be quoted, instead of only the fields
+// that RFC 4180 requires it for.
+func WithQuoteAll(b bool) CSVOption {
+	return func(c *csvConfig) { c.quoteAll = b }
+}
+
+// WithFlatten flattens one level of nested *OrderedMap children into
+// columns named "parent<sep>child", instead of skipping them (ToCSV's
+// default behavior).
+func WithFlatten(sep string) CSVOption {
+	return func(c *csvConfig) { c.flattenSep = sep }
+}
+
+// ToCSVWithOptions is ToCSV with configurable delimiter, quoting and
+// nested-object flattening, built on encoding/csv (correct RFC 4180
+// quoting/escaping, including embedded CRLF) instead of ToCSV's hand-rolled
+// version.
+func ToCSVWithOptions(w io.Writer, nodes []*OrderedMap, opts ...CSVOption) error {
+	cfg := &csvConfig{delimiter: ','}
+	for _, o := range opts {
+		o(cfg)
+	}
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	// 1. Descubrir Headers
+	headerMap := make(map[string]bool)
+	var headers []string
+	addHeader := func(h string) {
+		if !headerMap[h] {
+			headerMap[h] = true
+			headers = append(headers, h)
+		}
+	}
+	for _, node := range nodes {
+		for _, k := range node.Keys() {
+			if strings.HasPrefix(k, "@") || strings.HasPrefix(k, "#") {
+				continue
+			}
+			if child, ok := node.Get(k).(*OrderedMap); ok {
+				if cfg.flattenSep == "" {
+					continue // nested objects skipped unless WithFlatten is set
+				}
+				for _, ck := range child.Keys() {
+					if strings.HasPrefix(ck, "@") || strings.HasPrefix(ck, "#") {
+						continue
+					}
+					addHeader(k + cfg.flattenSep + ck)
+				}
+				continue
+			}
+			addHeader(k)
+		}
+	}
+	sort.Strings(headers)
+
+	cw := csv.NewWriter(w)
+	cw.Comma = cfg.delimiter
+
+	writeRow := func(fields []string) error {
+		if !cfg.quoteAll {
+			return cw.Write(fields)
+		}
+		quoted := make([]string, len(fields))
+		for i, f := range fields {
+			quoted[i] = `"` + strings.ReplaceAll(f, `"`, `""`) + `"`
+		}
+		_, err := io.WriteString(w, strings.Join(quoted, string(cfg.delimiter))+"\r\n")
+		return err
+	}
+
+	if err := writeRow(headers); err != nil {
+		return err
+	}
+
+	for _, node := range nodes {
+		row := make([]string, len(headers))
+		for i, h := range headers {
+			if cfg.flattenSep != "" && strings.Contains(h, cfg.flattenSep) {
+				parts := strings.SplitN(h, cfg.flattenSep, 2)
+				row[i] = node.String(parts[0] + "/" + parts[1])
+			} else {
+				row[i] = node.String(h)
+			}
+		}
+		if err := writeRow(row); err != nil {
+			return err
+		}
+	}
+
+	if !cfg.quoteAll {
+		cw.Flush()
+		return cw.Error()
 	}
 	return nil
 }

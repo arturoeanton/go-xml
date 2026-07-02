@@ -17,6 +17,19 @@ const (
 	AuthWSSecurity = "WSSecurity"
 )
 
+// SoapVersion selecciona el envelope/Content-Type usado por Call.
+type SoapVersion int
+
+const (
+	Soap11 SoapVersion = iota // http://schemas.xmlsoap.org/soap/envelope/, text/xml + header SOAPAction
+	Soap12                    // http://www.w3.org/2003/05/soap-envelope, application/soap+xml con action= en Content-Type
+)
+
+const (
+	soap11EnvelopeNS = "http://schemas.xmlsoap.org/soap/envelope/"
+	soap12EnvelopeNS = "http://www.w3.org/2003/05/soap-envelope"
+)
+
 // SoapClient permite llamadas dinámicas a servicios SOAP sin structs.
 type SoapClient struct {
 	EndpointURL    string
@@ -24,19 +37,24 @@ type SoapClient struct {
 	HttpClient     *http.Client
 	SoapActionBase string
 	Headers        map[string]string
+	Version        SoapVersion
 
 	AuthType     string
 	AuthUsername string
 	AuthPassword string
 	AuthToken    string
 
-	// --- mTLS Config (NUEVO) ---
+	// --- mTLS Config ---
 	CertFile string
 	KeyFile  string
 	Insecure bool // Skip Verify
+
+	// --- Retry ---
+	RetryAttempts int           // 0 o 1 = sin reintentos
+	RetryBackoff  time.Duration // espera fija entre intentos
 }
 
-// --- Nuevas Opciones mTLS ---
+// --- Opciones mTLS ---
 
 // WithClientCertificate habilita mTLS usando archivos PEM (.crt y .key).
 func WithClientCertificate(certFile, keyFile string) ClientOption {
@@ -65,6 +83,23 @@ func WithHeader(key, value string) ClientOption {
 
 func WithSoapActionBase(base string) ClientOption {
 	return func(s *SoapClient) { s.SoapActionBase = base }
+}
+
+// WithSOAPVersion selecciona SOAP 1.1 (default) o SOAP 1.2.
+func WithSOAPVersion(v SoapVersion) ClientOption {
+	return func(s *SoapClient) { s.Version = v }
+}
+
+// WithRetry reintenta la llamada hasta `attempts` veces (con espera fija
+// `backoff` entre intentos) cuando el error es de transporte (conexión,
+// timeout, DNS). Una respuesta HTTP ya recibida — incluyendo un SOAP Fault
+// entregado con status 500 — nunca se reintenta: reintentar no cambia el
+// resultado de un error de negocio.
+func WithRetry(attempts int, backoff time.Duration) ClientOption {
+	return func(s *SoapClient) {
+		s.RetryAttempts = attempts
+		s.RetryBackoff = backoff
+	}
 }
 
 // --- Auth Options ---
@@ -140,6 +175,60 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 	return client
 }
 
+// SoapFault representa un <soap:Fault> tipado (SOAP 1.1 faultcode/
+// faultstring o SOAP 1.2 Code/Reason), en vez de un error genérico —
+// permite usar errors.As para inspeccionar Code/Message/Detail.
+type SoapFault struct {
+	Code    string
+	Message string
+	Actor   string
+	Detail  *OrderedMap
+}
+
+func (f *SoapFault) Error() string {
+	if f.Actor != "" {
+		return fmt.Sprintf("SOAP fault [%s] (actor=%s): %s", f.Code, f.Actor, f.Message)
+	}
+	return fmt.Sprintf("SOAP fault [%s]: %s", f.Code, f.Message)
+}
+
+// extractSoapFault busca un soap:Fault en la respuesta parseada, soportando
+// tanto la forma SOAP 1.1 (faultcode/faultstring/faultactor/detail) como la
+// forma SOAP 1.2 (Code/Value, Reason/Text, Detail). Devuelve nil si no hay
+// Fault reconocible.
+func extractSoapFault(respMap *OrderedMap) *SoapFault {
+	fault, _ := Query(respMap, "Envelope/Body/Fault")
+	fMap, ok := fault.(*OrderedMap)
+	if !ok {
+		return nil
+	}
+
+	if code := fMap.String("faultcode"); code != "" {
+		sf := &SoapFault{Code: code, Message: fMap.String("faultstring"), Actor: fMap.String("faultactor")}
+		if d, ok := fMap.Get("detail").(*OrderedMap); ok {
+			sf.Detail = d
+		}
+		return sf
+	}
+
+	codeNode, _ := fMap.Get("Code").(*OrderedMap)
+	reasonNode, _ := fMap.Get("Reason").(*OrderedMap)
+	if codeNode == nil && reasonNode == nil {
+		return nil
+	}
+	sf := &SoapFault{}
+	if codeNode != nil {
+		sf.Code = codeNode.String("Value")
+	}
+	if reasonNode != nil {
+		sf.Message = reasonNode.String("Text")
+	}
+	if d, ok := fMap.Get("Detail").(*OrderedMap); ok {
+		sf.Detail = d
+	}
+	return sf
+}
+
 // Call ejecuta una acción SOAP.
 // payload puede ser *OrderedMap (respeta orden) o map[string]any (ordena alfabéticamente).
 func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
@@ -165,8 +254,12 @@ func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	}
 
 	// 2. Construir Envelope Base
+	envelopeNS := soap11EnvelopeNS
+	if c.Version == Soap12 {
+		envelopeNS = soap12EnvelopeNS
+	}
 	envelopeMap := NewMap()
-	envelopeMap.Put("@xmlns:soap", "http://schemas.xmlsoap.org/soap/envelope/")
+	envelopeMap.Put("@xmlns:soap", envelopeNS)
 
 	// 3. Inyectar WS-Security (Si aplica) - Headers van ANTES del Body
 	if c.AuthType == AuthWSSecurity {
@@ -202,76 +295,75 @@ func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	if err := enc.Encode(envelope); err != nil {
 		return nil, fmt.Errorf("failed to encode SOAP request: %w", err)
 	}
+	bodyBytes := buf.Bytes()
 
-	// 6. Create Request
-	req, err := http.NewRequest("POST", c.EndpointURL, &buf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	// Headers Base
-	req.Header.Set("Content-Type", "text/xml; charset=utf-8")
-	req.Header.Set("User-Agent", "r2-xml-client/2.0")
-
-	// Auth Headers (HTTP Level)
-	switch c.AuthType {
-	case AuthBasic:
-		req.SetBasicAuth(c.AuthUsername, c.AuthPassword)
-	case AuthBearer:
-		req.Header.Set("Authorization", "Bearer "+c.AuthToken)
-	}
-
-	// Custom Headers
-	for k, v := range c.Headers {
-		req.Header.Set(k, v)
-	}
-
-	// SOAPAction Logic
+	// SOAPAction / Content-Type action
 	base := c.Namespace
 	if c.SoapActionBase != "" {
 		base = c.SoapActionBase
 	}
 	cleanBase := strings.TrimSuffix(base, "/")
 	cleanAction := strings.TrimPrefix(action, "/")
-	soapActionHeader := fmt.Sprintf("\"%s/%s\"", cleanBase, cleanAction)
-	req.Header.Set("SOAPAction", soapActionHeader)
+	soapAction := fmt.Sprintf("%s/%s", cleanBase, cleanAction)
 
-	// 7. Send
-	resp, err := c.HttpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("soap call network error: %w", err)
+	// 6. Send (con reintentos solo ante error de transporte)
+	attempts := c.RetryAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	var resp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			if c.RetryBackoff > 0 {
+				time.Sleep(c.RetryBackoff)
+			}
+		}
+
+		req, err := http.NewRequest("POST", c.EndpointURL, bytes.NewReader(bodyBytes))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		if c.Version == Soap12 {
+			req.Header.Set("Content-Type", fmt.Sprintf(`application/soap+xml; charset=utf-8; action="%s"`, soapAction))
+		} else {
+			req.Header.Set("Content-Type", "text/xml; charset=utf-8")
+			req.Header.Set("SOAPAction", fmt.Sprintf("\"%s\"", soapAction))
+		}
+		req.Header.Set("User-Agent", "r2-xml-client/2.0")
+
+		switch c.AuthType {
+		case AuthBasic:
+			req.SetBasicAuth(c.AuthUsername, c.AuthPassword)
+		case AuthBearer:
+			req.Header.Set("Authorization", "Bearer "+c.AuthToken)
+		}
+		for k, v := range c.Headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, lastErr = c.HttpClient.Do(req)
+		if lastErr == nil {
+			break
+		}
+	}
+	if lastErr != nil {
+		return nil, fmt.Errorf("soap call network error: %w", lastErr)
 	}
 	defer resp.Body.Close()
 
-	// 8. Parse
+	// 7. Parse
 	respMap, err := MapXML(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response (status %d): %w", resp.StatusCode, err)
 	}
 
-	// 9. Fault Handling
+	// 8. Fault Handling
 	if resp.StatusCode != http.StatusOK {
-		// Intentamos navegar al Fault. La estructura suele ser Envelope/Body/Fault
-		// Pero al usar MapXML sin unwrapper manual, la root key "soap:Envelope" encapsula todo.
-		// MapXML retorna el objeto root directamente? NO. Revisitando MapXML:
-		// "stack := []*node{{tagName: "", data: root}}" -> devuelve root.
-		// El root tiene una key "soap:Envelope".
-		// Query debería ser "soap:Envelope/soap:Body/soap:Fault" (con nombres reales devueltos por MapXML).
-		// MapXML no limpia namespaces automáticamente en claves, solo en valores hooks.
-		// Las claves retienen "wsse:..." si no hay alias?
-		// "tagName := resolveName(...)". Si no hay alias, usa local? No.
-		// "resolveName": if match -> alias:local. Else -> local.
-		// Espera, xml.Name es {Space, Local}.
-		// resolveName: "return name.Local" if no match.
-		// Entonces las claves son LOCAL NAMES. "Envelope", "Body", "Fault".
-		// EXCEPTO si registramos namespaces. En default config map is empty.
-		// Entonces claves son "Envelope", "Body", "Fault".
-
-		fault, _ := Query(respMap, "Envelope/Body/Fault")
-		if fault != nil {
-			if fMap, ok := fault.(*OrderedMap); ok {
-				return nil, fmt.Errorf("SOAP Fault %d: [%v] %v", resp.StatusCode, fMap.Get("faultcode"), fMap.Get("faultstring"))
-			}
+		if fault := extractSoapFault(respMap); fault != nil {
+			return nil, fault
 		}
 		return nil, fmt.Errorf("http error %d", resp.StatusCode)
 	}

@@ -500,6 +500,12 @@ func demo_dian() {
 	fmt.Println("--------------------------------------------------")
 	fmt.Println(finalXML)
 	fmt.Println("--------------------------------------------------")
+
+	if err := signer.Verify([]byte(finalXML)); err != nil {
+		fmt.Printf("❌ Verify falló: %v\n", err)
+		return
+	}
+	fmt.Println("✅ Verify: la firma es válida (digest + RSA verificados).")
 }
 
 //////

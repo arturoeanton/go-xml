@@ -7,6 +7,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
 )
@@ -137,5 +138,145 @@ func TestCreateXadesSignature(t *testing.T) {
 
 	if len(refList) != 2 {
 		t.Errorf("Expected 2 references (Doc + Props), got %d", len(refList))
+	}
+}
+
+// buildSignableDoc mirrors the pattern demo.go uses: build the document,
+// marshal it BEFORE the signature exists (that's what gets referenced), sign
+// it, embed the returned signature, and re-marshal.
+func buildSignableDoc(t *testing.T) (doc, inner *OrderedMap) {
+	t.Helper()
+	inner = NewMap()
+	inner.Set("@xmlns", "urn:test:invoice")
+	inner.Set("@xmlns:ds", dsigNS)
+	inner.Set("ID", "SETT-100")
+	inner.Set("Amount", "1000.00")
+
+	doc = NewMap()
+	doc.Set("Root", inner)
+	return doc, inner
+}
+
+func TestSigner_CreateSignature_VerifyRoundTrip(t *testing.T) {
+	certPEM, keyPEM := generateTestKeys(t)
+	s, _ := NewSigner(certPEM, keyPEM)
+
+	doc, inner := buildSignableDoc(t)
+	preSignBytes, err := Marshal(doc)
+	if err != nil {
+		t.Fatalf("Marshal (pre-sign) error: %v", err)
+	}
+
+	sig, err := s.CreateSignature([]byte(preSignBytes))
+	if err != nil {
+		t.Fatalf("CreateSignature error: %v", err)
+	}
+	inner.Set("ds:Signature", sig)
+
+	finalXML, err := Marshal(doc)
+	if err != nil {
+		t.Fatalf("Marshal (final) error: %v", err)
+	}
+
+	if err := s.Verify([]byte(finalXML)); err != nil {
+		t.Fatalf("Verify failed on a signature this Signer just produced: %v\nXML: %s", err, finalXML)
+	}
+}
+
+func TestSigner_CreateXadesSignature_VerifyRoundTrip(t *testing.T) {
+	certPEM, keyPEM := generateTestKeys(t)
+	s, _ := NewSigner(certPEM, keyPEM)
+
+	doc, inner := buildSignableDoc(t)
+	preSignBytes, err := Marshal(doc)
+	if err != nil {
+		t.Fatalf("Marshal (pre-sign) error: %v", err)
+	}
+
+	sig, err := s.CreateXadesSignature([]byte(preSignBytes))
+	if err != nil {
+		t.Fatalf("CreateXadesSignature error: %v", err)
+	}
+	inner.Set("ds:Signature", sig)
+
+	finalXML, err := Marshal(doc)
+	if err != nil {
+		t.Fatalf("Marshal (final) error: %v", err)
+	}
+
+	if err := s.Verify([]byte(finalXML)); err != nil {
+		t.Fatalf("Verify failed on a XAdES signature this Signer just produced: %v\nXML: %s", err, finalXML)
+	}
+}
+
+// tamperFirstChar replaces the first character of the text content of the
+// first <tag>...</tag> found in xmlStr with a different, still-valid
+// character, guaranteeing the content changes without altering its length.
+func tamperFirstChar(t *testing.T, xmlStr, tag string) string {
+	t.Helper()
+	open := "<" + tag + ">"
+	start := strings.Index(xmlStr, open)
+	if start == -1 {
+		t.Fatalf("tag %q not found in: %s", tag, xmlStr)
+	}
+	start += len(open)
+	end := strings.Index(xmlStr[start:], "<")
+	if end <= 0 {
+		t.Fatalf("empty or malformed content for tag %q", tag)
+	}
+	content := []byte(xmlStr[start : start+end])
+	alt := byte('A')
+	if content[0] == 'A' {
+		alt = 'B'
+	}
+	content[0] = alt
+	return xmlStr[:start] + string(content) + xmlStr[start+end:]
+}
+
+func TestSigner_Verify_DetectsTamperedDocument(t *testing.T) {
+	certPEM, keyPEM := generateTestKeys(t)
+	s, _ := NewSigner(certPEM, keyPEM)
+
+	doc, inner := buildSignableDoc(t)
+	preSignBytes, _ := Marshal(doc)
+	sig, err := s.CreateXadesSignature([]byte(preSignBytes))
+	if err != nil {
+		t.Fatalf("CreateXadesSignature error: %v", err)
+	}
+	inner.Set("ds:Signature", sig)
+	finalXML, _ := Marshal(doc)
+
+	tampered := tamperFirstChar(t, finalXML, "ID")
+
+	err = s.Verify([]byte(tampered))
+	if err == nil {
+		t.Fatal("expected Verify to fail on a tampered document, got nil")
+	}
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Errorf("expected a digest mismatch error, got: %v", err)
+	}
+}
+
+func TestSigner_Verify_DetectsTamperedSignatureValue(t *testing.T) {
+	certPEM, keyPEM := generateTestKeys(t)
+	s, _ := NewSigner(certPEM, keyPEM)
+
+	doc, inner := buildSignableDoc(t)
+	preSignBytes, _ := Marshal(doc)
+	sig, err := s.CreateXadesSignature([]byte(preSignBytes))
+	if err != nil {
+		t.Fatalf("CreateXadesSignature error: %v", err)
+	}
+	inner.Set("ds:Signature", sig)
+	finalXML, _ := Marshal(doc)
+
+	tampered := tamperFirstChar(t, finalXML, "ds:SignatureValue")
+
+	err = s.Verify([]byte(tampered))
+	if err == nil {
+		t.Fatal("expected Verify to fail on a tampered SignatureValue, got nil")
+	}
+	if !strings.Contains(err.Error(), "signature does not match") {
+		t.Errorf("expected a signature mismatch error, got: %v", err)
 	}
 }

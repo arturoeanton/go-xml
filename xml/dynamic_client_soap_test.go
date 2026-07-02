@@ -2,12 +2,15 @@ package xml
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestSoapClient_Success(t *testing.T) {
@@ -114,10 +117,15 @@ func TestSoapClient_Fault(t *testing.T) {
 		t.Fatal("Expected error for SOAP Fault, got nil")
 	}
 
-	// Verify error message content
-	wantErr := "SOAP Fault 500: [soap:Client] Invalid ID"
-	if err.Error() != wantErr {
-		t.Errorf("Error = %q, want %q", err.Error(), wantErr)
+	var fault *SoapFault
+	if !errors.As(err, &fault) {
+		t.Fatalf("expected a *SoapFault, got %T: %v", err, err)
+	}
+	if fault.Code != "soap:Client" {
+		t.Errorf("fault.Code = %q, want %q", fault.Code, "soap:Client")
+	}
+	if fault.Message != "Invalid ID" {
+		t.Errorf("fault.Message = %q, want %q", fault.Message, "Invalid ID")
 	}
 }
 
@@ -180,4 +188,106 @@ func TestSoapClient_Auth(t *testing.T) {
 		client := NewSoapClient(ts.URL, "http://ns", WithWSSecurity("admin", "secret123"))
 		client.Call("Action", nil)
 	})
+}
+
+func TestSoapClient_Soap12(t *testing.T) {
+	var gotContentType, gotSOAPAction string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotContentType = r.Header.Get("Content-Type")
+		gotSOAPAction = r.Header.Get("SOAPAction")
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), "http://www.w3.org/2003/05/soap-envelope") {
+			t.Errorf("expected SOAP 1.2 envelope namespace in request body, got: %s", body)
+		}
+		fmt.Fprint(w, `<soap:Envelope><soap:Body><ok/></soap:Body></soap:Envelope>`)
+	}))
+	defer ts.Close()
+
+	client := NewSoapClient(ts.URL, "http://example.org/svc", WithSOAPVersion(Soap12))
+	if _, err := client.Call("DoThing", nil); err != nil {
+		t.Fatalf("Call failed: %v", err)
+	}
+
+	if !strings.HasPrefix(gotContentType, "application/soap+xml") {
+		t.Errorf("Content-Type = %q, want application/soap+xml prefix", gotContentType)
+	}
+	if !strings.Contains(gotContentType, `action="http://example.org/svc/DoThing"`) {
+		t.Errorf("Content-Type missing action parameter: %q", gotContentType)
+	}
+	if gotSOAPAction != "" {
+		t.Errorf("SOAP 1.2 requests should not set a separate SOAPAction header, got %q", gotSOAPAction)
+	}
+}
+
+// hijackAndClose simulates a transient transport-level failure (as opposed
+// to a valid HTTP response like a Fault): it grabs the raw connection and
+// closes it without writing anything, which surfaces to the client as a
+// network error, not an HTTP status.
+func hijackAndClose(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		t.Fatal("ResponseWriter does not support hijacking")
+	}
+	conn, _, err := hj.Hijack()
+	if err != nil {
+		t.Fatalf("hijack failed: %v", err)
+	}
+	conn.Close()
+}
+
+func TestSoapClient_WithRetry_RecoversFromTransientNetworkError(t *testing.T) {
+	var callCount int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&callCount, 1) == 1 {
+			hijackAndClose(t, w)
+			return
+		}
+		fmt.Fprint(w, `<soap:Envelope><soap:Body><ok/></soap:Body></soap:Envelope>`)
+	}))
+	defer ts.Close()
+
+	client := NewSoapClient(ts.URL, "http://ns", WithRetry(3, 5*time.Millisecond))
+	if _, err := client.Call("Action", nil); err != nil {
+		t.Fatalf("expected retry to recover from a transient network error, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&callCount); got != 2 {
+		t.Errorf("expected exactly 2 attempts (1 failure + 1 success), got %d", got)
+	}
+}
+
+func TestSoapClient_WithRetry_FailsAfterExhaustingAttempts(t *testing.T) {
+	var callCount int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		hijackAndClose(t, w)
+	}))
+	defer ts.Close()
+
+	client := NewSoapClient(ts.URL, "http://ns", WithRetry(3, 1*time.Millisecond))
+	if _, err := client.Call("Action", nil); err == nil {
+		t.Fatal("expected error after exhausting retry attempts, got nil")
+	}
+	if got := atomic.LoadInt32(&callCount); got != 3 {
+		t.Errorf("expected exactly 3 attempts, got %d", got)
+	}
+}
+
+func TestSoapClient_WithRetry_DoesNotRetryOnFault(t *testing.T) {
+	var callCount int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, `<soap:Envelope><soap:Body><soap:Fault><faultcode>soap:Client</faultcode><faultstring>bad request</faultstring></soap:Fault></soap:Body></soap:Envelope>`)
+	}))
+	defer ts.Close()
+
+	client := NewSoapClient(ts.URL, "http://ns", WithRetry(3, 1*time.Millisecond))
+	_, err := client.Call("Action", nil)
+	if err == nil {
+		t.Fatal("expected a fault error, got nil")
+	}
+	if callCount != 1 {
+		t.Errorf("expected exactly 1 call (faults are not retried), got %d", callCount)
+	}
 }
