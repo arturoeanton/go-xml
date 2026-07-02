@@ -16,8 +16,8 @@ Está diseñado para **Integración Empresarial** (Bancos, Gobierno, SOAP) donde
 *   **Consultas Avanzadas**: Consultas profundas tipo XPath (`Query(m, "users/user[0]/name")`).
 *   **Motor de Validación**: Define reglas de negocio (Regex, Rango, Enum, Tipo).
 *   **Herramienta CLI (r2xml)**: Navaja suiza integrada para XML (Format, JSON, CSV, SOAP).
-*   **Cliente SOAP Dinámico**: Llama servicios SOAP 1.1 sin generar código. Soporta **mTLS** y **WS-Security**.
-*   **Firma Digital**: Helper para firmas **XML-DSig** y **XAdES-BES**.
+*   **Cliente SOAP Dinámico**: Llama servicios SOAP 1.1 o 1.2 sin generar código. Soporta **mTLS**, **WS-Security**, errores `SoapFault` tipados y reintentos configurables.
+*   **Firma Digital**: Firmas **XML-DSig** y **XAdES-BES** con **Canonicalización XML Exclusiva** real (la variante que las firmas enveloped realmente necesitan), más `Verify()` para comprobar una firma producida de punta a punta en vez de confiar ciegamente.
 
 ## 📦 Instalación
 
@@ -144,6 +144,34 @@ for order := range stream.Iter() {
     process(order)
 }
 ```
+
+### 6. Firmas Digitales (XML-DSig / XAdES-BES)
+La firma usa **Canonicalización XML Exclusiva** real (`http://www.w3.org/2001/10/xml-exc-c14n#`) — la variante que XML-DSig enveloped, WS-Security y XAdES-BES (incluida la facturación electrónica DIAN de Colombia) realmente requieren en la práctica. `Verify` permite confirmar que una firma producida es válida en vez de confiar ciegamente.
+
+```go
+signer, _ := xml.NewSigner(certPEM, keyPEM)
+
+// 1. Serializar el documento ANTES de que exista la firma — eso es lo que se referencia.
+docBytes, _ := xml.Marshal(doc)
+
+// 2. Firmar (XAdES-BES; usar CreateSignature para XML-DSig simple)
+sig, _ := signer.CreateXadesSignature([]byte(docBytes))
+
+// 3. Embeber la firma y re-serializar
+invoiceNode.Set("ds:Signature", sig)
+finalXML, _ := xml.Marshal(doc)
+
+// 4. Verificar (digest + firma RSA) — detecta tanto manipulación como regresiones
+if err := signer.Verify([]byte(finalXML)); err != nil {
+    log.Fatal("firma inválida: ", err)
+}
+```
+
+> **¿Tenés un certificado `.p12`/`.pfx`?** `NewSigner` recibe PEM, siguiendo el diseño sin dependencias externas de esta librería (sin `golang.org/x/crypto/pkcs12` ni similares). Convertilo una vez con OpenSSL:
+> ```bash
+> openssl pkcs12 -in cert.p12 -out cert.pem -clcerts -nokeys
+> openssl pkcs12 -in cert.p12 -out key.pem -nocerts -nodes
+> ```
 
 ## ⚙️ Arquitectura: OrderedMap
 

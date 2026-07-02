@@ -127,6 +127,17 @@ func TestSoapClient_Fault(t *testing.T) {
 	if fault.Message != "Invalid ID" {
 		t.Errorf("fault.Message = %q, want %q", fault.Message, "Invalid ID")
 	}
+	if want := "SOAP fault [soap:Client]: Invalid ID"; fault.Error() != want {
+		t.Errorf("fault.Error() = %q, want %q", fault.Error(), want)
+	}
+}
+
+func TestSoapFault_Error_IncludesActor(t *testing.T) {
+	fault := &SoapFault{Code: "soap:Server", Message: "boom", Actor: "http://example.org/actor"}
+	want := "SOAP fault [soap:Server] (actor=http://example.org/actor): boom"
+	if fault.Error() != want {
+		t.Errorf("Error() = %q, want %q", fault.Error(), want)
+	}
 }
 
 func TestSoapClient_Auth(t *testing.T) {
@@ -289,5 +300,24 @@ func TestSoapClient_WithRetry_DoesNotRetryOnFault(t *testing.T) {
 	}
 	if callCount != 1 {
 		t.Errorf("expected exactly 1 call (faults are not retried), got %d", callCount)
+	}
+}
+
+func TestSoapClient_InsecureSkipVerify(t *testing.T) {
+	// httptest.NewTLSServer serves a self-signed cert that no default trust
+	// store will accept — the point of this test.
+	ts := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `<soap:Envelope><soap:Body><ok/></soap:Body></soap:Envelope>`)
+	}))
+	defer ts.Close()
+
+	secure := NewSoapClient(ts.URL, "http://ns")
+	if _, err := secure.Call("Action", nil); err == nil {
+		t.Fatal("expected a certificate validation error without WithInsecureSkipVerify, got nil")
+	}
+
+	insecure := NewSoapClient(ts.URL, "http://ns", WithInsecureSkipVerify())
+	if _, err := insecure.Call("Action", nil); err != nil {
+		t.Fatalf("expected WithInsecureSkipVerify to accept the self-signed cert, got: %v", err)
 	}
 }

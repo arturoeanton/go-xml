@@ -21,8 +21,13 @@ func LoadCert(certFile, keyFile string) (tls.Certificate, error) {
 	return cert, nil
 }
 
-// LoadP12Cert es un placeholder para el futuro.
-// En el Paso 2 implementaremos esto agregando la dependencia externa.
+// LoadP12Cert is intentionally unimplemented: parsing PKCS#12 requires a
+// dependency this package deliberately doesn't have (go.mod has zero
+// requires). Convert the .p12/.pfx to PEM once with OpenSSL and use LoadCert
+// or NewSigner instead:
+//
+//	openssl pkcs12 -in cert.p12 -out cert.pem -clcerts -nokeys
+//	openssl pkcs12 -in cert.p12 -out key.pem -nocerts -nodes
 func LoadP12Cert(path, password string) (tls.Certificate, error) {
-	return tls.Certificate{}, fmt.Errorf("P12 support not installed yet (requires external dependency)")
+	return tls.Certificate{}, fmt.Errorf("P12 support not implemented: convert to PEM with 'openssl pkcs12 -in %s -out cert.pem -clcerts -nokeys' and 'openssl pkcs12 -in %s -out key.pem -nocerts -nodes', then use LoadCert", path, path)
 }

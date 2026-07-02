@@ -16,8 +16,8 @@ It is designed for **Enterprise Integration** (Banking, Government, SOAP) where 
 *   **Advanced Querying**: XPath-like deep querying (`Query(m, "users/user[0]/name")`).
 *   **Validation Engine**: Define business rules (Regex, Range, Enum, Type).
 *   **CLI Tool (r2xml)**: Built-in Swiss Army Knife for XML (Format, JSON, CSV, SOAP).
-*   **Dynamic SOAP Client**: Call SOAP 1.1 services without generating code. Supports **mTLS** and **WS-Security**.
-*   **Digital Signatures**: Helper for **XML-DSig** and **XAdES-BES** signing.
+*   **Dynamic SOAP Client**: Call SOAP 1.1 or 1.2 services without generating code. Supports **mTLS**, **WS-Security**, typed `SoapFault` errors, and configurable retries.
+*   **Digital Signatures**: **XML-DSig** and **XAdES-BES** signing with real **Exclusive XML Canonicalization** (the variant enveloped signatures actually need), plus `Verify()` to check a produced signature end-to-end instead of trusting it blindly.
 
 ## 📦 Installation
 
@@ -144,6 +144,34 @@ for order := range stream.Iter() {
     process(order)
 }
 ```
+
+### 6. Digital Signatures (XML-DSig / XAdES-BES)
+Signing uses real **Exclusive XML Canonicalization** (`http://www.w3.org/2001/10/xml-exc-c14n#`) — the variant enveloped XML-DSig, WS-Security and XAdES-BES (including Colombian DIAN e-invoicing) actually require in practice. `Verify` lets you confirm a produced signature is valid instead of trusting it blindly.
+
+```go
+signer, _ := xml.NewSigner(certPEM, keyPEM)
+
+// 1. Marshal the document BEFORE the signature exists — that's what gets referenced.
+docBytes, _ := xml.Marshal(doc)
+
+// 2. Sign (XAdES-BES; use CreateSignature for plain XML-DSig)
+sig, _ := signer.CreateXadesSignature([]byte(docBytes))
+
+// 3. Embed the signature and re-marshal
+invoiceNode.Set("ds:Signature", sig)
+finalXML, _ := xml.Marshal(doc)
+
+// 4. Verify (digest + RSA signature) — catches tampering and regressions alike
+if err := signer.Verify([]byte(finalXML)); err != nil {
+    log.Fatal("invalid signature: ", err)
+}
+```
+
+> **Using a `.p12`/`.pfx` certificate?** `NewSigner` takes PEM, matching this package's zero-dependency design (no `golang.org/x/crypto/pkcs12` or similar). Convert once with OpenSSL:
+> ```bash
+> openssl pkcs12 -in cert.p12 -out cert.pem -clcerts -nokeys
+> openssl pkcs12 -in cert.p12 -out key.pem -nocerts -nodes
+> ```
 
 ## ⚙️ Architecture: OrderedMap
 
