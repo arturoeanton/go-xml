@@ -321,3 +321,96 @@ func TestSoapClient_InsecureSkipVerify(t *testing.T) {
 		t.Fatalf("expected WithInsecureSkipVerify to accept the self-signed cert, got: %v", err)
 	}
 }
+
+func TestSoapClient_CallOperation_UsesExactSOAPAction(t *testing.T) {
+	wsdl, err := ParseWSDL(strings.NewReader(testWSDL))
+	if err != nil {
+		t.Fatalf("ParseWSDL error: %v", err)
+	}
+
+	var gotSOAPAction string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSOAPAction = r.Header.Get("SOAPAction")
+		fmt.Fprint(w, `<soap:Envelope><soap:Body><ok/></soap:Body></soap:Envelope>`)
+	}))
+	defer ts.Close()
+
+	client := NewSoapClient(ts.URL, "http://ns")
+	if _, err := client.CallOperation(wsdl, "GetTemperature", nil); err != nil {
+		t.Fatalf("CallOperation error: %v", err)
+	}
+
+	want := `"http://example.org/weather/GetTemperature"`
+	if gotSOAPAction != want {
+		t.Errorf("SOAPAction = %q, want the WSDL's exact value %q (not the guessed namespace/action one)", gotSOAPAction, want)
+	}
+}
+
+func TestSoapClient_CallOperation_EmptySOAPAction(t *testing.T) {
+	wsdl, err := ParseWSDL(strings.NewReader(testWSDL))
+	if err != nil {
+		t.Fatalf("ParseWSDL error: %v", err)
+	}
+
+	var gotSOAPAction string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// r.Header.Get returns "" both if the header is absent AND if its
+		// value is empty — but we set the value to the literal 2-character
+		// string `""` (quote-quote), which IS what we're asserting on here.
+		gotSOAPAction = r.Header.Get("SOAPAction")
+		fmt.Fprint(w, `<soap:Envelope><soap:Body><ok/></soap:Body></soap:Envelope>`)
+	}))
+	defer ts.Close()
+
+	client := NewSoapClient(ts.URL, "http://ns")
+	if _, err := client.CallOperation(wsdl, "GetStatus", nil); err != nil {
+		t.Fatalf("CallOperation error: %v", err)
+	}
+
+	if gotSOAPAction != `""` {
+		t.Errorf("SOAPAction = %q, want literal empty quotes %q (never a bare/omitted header)", gotSOAPAction, `""`)
+	}
+}
+
+func TestSoapClient_CallOperation_UnknownAction(t *testing.T) {
+	wsdl, err := ParseWSDL(strings.NewReader(testWSDL))
+	if err != nil {
+		t.Fatalf("ParseWSDL error: %v", err)
+	}
+
+	called := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer ts.Close()
+
+	client := NewSoapClient(ts.URL, "http://ns")
+	if _, err := client.CallOperation(wsdl, "NoSuchAction", nil); err == nil {
+		t.Fatal("expected an error for an action not present in the WSDL, got nil")
+	}
+	if called {
+		t.Error("CallOperation should validate the action before making any HTTP request")
+	}
+}
+
+func TestNewSoapClientFromWSDL(t *testing.T) {
+	wsdl, err := ParseWSDL(strings.NewReader(testWSDL))
+	if err != nil {
+		t.Fatalf("ParseWSDL error: %v", err)
+	}
+
+	client, err := NewSoapClientFromWSDL(wsdl)
+	if err != nil {
+		t.Fatalf("NewSoapClientFromWSDL error: %v", err)
+	}
+
+	if client.EndpointURL != "http://weather.example.org/soap11" {
+		t.Errorf("EndpointURL = %q, want the WSDL's first SOAP port", client.EndpointURL)
+	}
+	if client.Namespace != "http://example.org/weather" {
+		t.Errorf("Namespace = %q, want the WSDL's target namespace", client.Namespace)
+	}
+	if client.Version != Soap11 {
+		t.Errorf("Version = %v, want Soap11 (matching the first port)", client.Version)
+	}
+}

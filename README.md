@@ -17,6 +17,7 @@ It is designed for **Enterprise Integration** (Banking, Government, SOAP) where 
 *   **Validation Engine**: Define business rules (Regex, Range, Enum, Type).
 *   **CLI Tool (r2xml)**: Built-in Swiss Army Knife for XML (Format, JSON, CSV, SOAP).
 *   **Dynamic SOAP Client**: Call SOAP 1.1 or 1.2 services without generating code. Supports **mTLS**, **WS-Security**, typed `SoapFault` errors, and configurable retries.
+*   **WSDL Discovery**: Point `ParseWSDL` at a `.wsdl` and get validated operations — exact `soapAction`, endpoint, and SOAP version, instead of guessing them by hand.
 *   **Digital Signatures**: **XML-DSig** and **XAdES-BES** signing with real **Exclusive XML Canonicalization** (the variant enveloped signatures actually need), plus `Verify()` to check a produced signature end-to-end instead of trusting it blindly.
 
 ## 📦 Installation
@@ -172,6 +173,29 @@ if err := signer.Verify([]byte(finalXML)); err != nil {
 > openssl pkcs12 -in cert.p12 -out cert.pem -clcerts -nokeys
 > openssl pkcs12 -in cert.p12 -out key.pem -nocerts -nodes
 > ```
+
+### 7. WSDL Discovery (validate before you call)
+`ParseWSDL` reads a WSDL 1.1 file and resolves it into callable operations — the exact `soapAction`, endpoint and SOAP version, instead of `SoapClient.Call`'s guessed `namespace/action` convention (frequently wrong: many real services use an empty `soapAction` or an unrelated URN).
+
+```go
+f, _ := os.Open("service.wsdl")
+wsdl, _ := xml.ParseWSDL(f)
+
+for _, op := range wsdl.Operations() {
+    fmt.Println(op.Name, op.SOAPAction, op.Endpoint)
+}
+
+client, _ := xml.NewSoapClientFromWSDL(wsdl) // endpoint/namespace/version from the WSDL
+resp, err := client.CallOperation(wsdl, "GetTemperature", payload) // errors if the action doesn't exist
+```
+
+Or from the CLI:
+```bash
+r2xml wsdl service.wsdl                                    # list discovered operations
+r2xml call --wsdl=service.wsdl --action=GetTemperature --data="city=Bogota"
+```
+
+**Scope**: WSDL 1.1 only, single file (no `wsdl:import`/`xsd:import`), no XSD type modeling — message parts expose their resolved element/type name, not a full schema tree. Covers the common case (discover + validate real-world SOAP services) without the weight of a full code generator.
 
 ## ⚙️ Architecture: OrderedMap
 

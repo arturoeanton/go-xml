@@ -13,7 +13,7 @@
 - [x] **Exportación CSV**: Aplanar listas XML a CSV.
 - [x] **Firma Digital**: XML-DSig y XAdES-BES con Canonicalización XML Exclusiva real, más `Signer.Verify` (`xml.Signer`).
 - [x] **Soporte SOAP 1.2**: `WithSOAPVersion`, `SoapFault` tipado, `WithRetry`.
+- [x] **Parser WSDL**: `ParseWSDL` descubre y valida operaciones (soapAction/endpoint/versión exactos); `CallOperation`, `NewSoapClientFromWSDL`, `r2xml wsdl`.
 
 ## 🚀 v2.x (Futuro / En Progreso)
-- [ ] **Parser WSDL**: Inspección dinámica de WSDL para validar acciones.
 - [ ] **Procesamiento Paralelo**: Streaming de chunks en goroutines paralelas.

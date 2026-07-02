@@ -30,6 +30,8 @@ func main() {
 		xml.CliSoap(args)
 	case "call":
 		xml.CliSoapQuick(args)
+	case "wsdl":
+		xml.CliWSDL(args)
 	case "demo":
 		target := "all"
 		if len(args) > 0 {
@@ -55,6 +57,8 @@ func printHelp() {
 	fmt.Println("  call  [flags]         : Ejecutar request SOAP rápido con parámetros")
 	fmt.Println("        --url=... --action=... --ns=... --auth=wsse --user=... --pass=...")
 	fmt.Println("        --data=\"Key=Val\" --data=\"Nested/Key=Val\"")
+	fmt.Println("        --wsdl=service.wsdl : usa el WSDL para validar --action y setear url/ns/soapAction")
+	fmt.Println("  wsdl  <file.wsdl>     : Listar operaciones SOAP descubiertas en un WSDL")
 	fmt.Println("  demo                  : Ejecutar demos internas")
 	fmt.Println("  demo [nombre]         : Ejecutar demo específica")
 

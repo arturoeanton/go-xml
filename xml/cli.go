@@ -214,6 +214,51 @@ func CliSoap(args []string) {
 	}
 }
 
+// 7. WSDL Discovery
+// Uso: r2xml wsdl service.wsdl
+func CliWSDL(args []string) {
+	r, err := getInputReader(args)
+	if err != nil {
+		die(err)
+	}
+
+	w, err := ParseWSDL(r)
+	if err != nil {
+		die(err)
+	}
+
+	ops := w.Operations()
+	if len(ops) == 0 {
+		fmt.Println("No SOAP operations found in this WSDL.")
+		return
+	}
+
+	for _, op := range ops {
+		version := "SOAP 1.1"
+		if op.Version == Soap12 {
+			version = "SOAP 1.2"
+		}
+		fmt.Printf("%s (%s)\n", op.Name, version)
+		fmt.Printf("  SOAPAction: %q\n", op.SOAPAction)
+		fmt.Printf("  Endpoint:   %s\n", op.Endpoint)
+		if len(op.InputParts) > 0 {
+			fmt.Printf("  Input:      %s\n", partNames(op.InputParts))
+		}
+		if len(op.OutputParts) > 0 {
+			fmt.Printf("  Output:     %s\n", partNames(op.OutputParts))
+		}
+		fmt.Println()
+	}
+}
+
+func partNames(parts []WSDLPart) string {
+	names := make([]string, len(parts))
+	for i, p := range parts {
+		names[i] = p.Name
+	}
+	return strings.Join(names, ", ")
+}
+
 func die(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 	os.Exit(1)
@@ -230,7 +275,7 @@ func CliSoapQuick(args []string) {
 	// Definimos un FlagSet independiente para no ensuciar el global
 	fs := flag.NewFlagSet("call", flag.ExitOnError)
 
-	var url, action, ns, user, pass, authType string
+	var url, action, ns, user, pass, authType, wsdlPath string
 	var dataFlags arrayFlags // Tipo custom para soportar múltiples --data
 
 	fs.StringVar(&url, "url", "", "SOAP Endpoint URL")
@@ -239,6 +284,7 @@ func CliSoapQuick(args []string) {
 	fs.StringVar(&authType, "auth", "none", "Auth type: basic, wsse")
 	fs.StringVar(&user, "user", "", "Username")
 	fs.StringVar(&pass, "pass", "", "Password")
+	fs.StringVar(&wsdlPath, "wsdl", "", "WSDL file: validates --action and supplies url/ns/soapAction (overrides --url/--ns)")
 
 	// Bind del flag repetible
 	fs.Var(&dataFlags, "data", "Payload key=value (Ex: --data 'User/Id=100'). Can be repeated.")
@@ -246,8 +292,22 @@ func CliSoapQuick(args []string) {
 	fs.Parse(args)
 
 	// Validaciones básicas
-	if url == "" || action == "" {
-		die(fmt.Errorf("required flags: --url and --action"))
+	if action == "" || (url == "" && wsdlPath == "") {
+		die(fmt.Errorf("required flags: --action and (--url or --wsdl)"))
+	}
+
+	// Con --wsdl: validar la acción y sacar url/ns/soapAction del propio WSDL.
+	var wsdl *WSDL
+	if wsdlPath != "" {
+		f, err := os.Open(wsdlPath)
+		if err != nil {
+			die(fmt.Errorf("failed to open --wsdl file: %w", err))
+		}
+		defer f.Close()
+		wsdl, err = ParseWSDL(f)
+		if err != nil {
+			die(err)
+		}
 	}
 
 	// 1. Construir Cliente
@@ -258,13 +318,21 @@ func CliSoapQuick(args []string) {
 		opts = append(opts, WithBasicAuth(user, pass))
 	}
 
-	// Si no pasaron namespace, intentamos usar la URL base o vacío
-	if ns == "" {
-		// A veces funciona vacío, a veces no.
-		// Mejor dejarlo vacío si el usuario no lo pone.
+	var client *SoapClient
+	if wsdl != nil {
+		var err error
+		client, err = NewSoapClientFromWSDL(wsdl, opts...)
+		if err != nil {
+			die(err)
+		}
+		if url != "" {
+			// --url junto con --wsdl: mismo contrato (soapAction/namespace/versión),
+			// pero llamar a otro endpoint (ej. probar contra staging con el WSDL de prod).
+			client.EndpointURL = url
+		}
+	} else {
+		client = NewSoapClient(url, ns, opts...)
 	}
-
-	client := NewSoapClient(url, ns, opts...)
 
 	// 2. Construir Payload usando OrderedMap.Set (¡La Magia!)
 	payload := NewMap()
@@ -276,19 +344,17 @@ func CliSoapQuick(args []string) {
 			fmt.Fprintf(os.Stderr, "Warning: ignoring invalid data format '%s'. Use key=value\n", d)
 			continue
 		}
-
-		key := parts[0]
-		val := parts[1]
-
-		// Opcional: Inferencia de tipos básica para la CLI
-		// Si parece número, mandarlo como int/float?
-		// Por seguridad en SOAP, String suele ser lo más compatible si no tenemos WSDL.
-		// Pero si quieres soportar bools/ints:
-		payload.Set(key, inferCLIValue(val))
+		payload.Set(parts[0], inferCLIValue(parts[1]))
 	}
 
 	// 3. Ejecutar
-	resp, err := client.Call(action, payload)
+	var resp *OrderedMap
+	var err error
+	if wsdl != nil {
+		resp, err = client.CallOperation(wsdl, action, payload)
+	} else {
+		resp, err = client.Call(action, payload)
+	}
 	if err != nil {
 		die(err)
 	}

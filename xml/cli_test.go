@@ -1,6 +1,7 @@
 package xml
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -199,5 +200,56 @@ func TestCliSoapQuick(t *testing.T) {
 
 	if !strings.Contains(out, "Response") {
 		t.Errorf("CliSoapQuick output missing expected content: %q", out)
+	}
+}
+
+func TestCliWSDL(t *testing.T) {
+	path := writeTempFile(t, "service.wsdl", testWSDL)
+
+	out := captureStdout(t, func() {
+		CliWSDL([]string{path})
+	})
+
+	for _, want := range []string{
+		"GetTemperature",
+		"GetStatus",
+		`"http://example.org/weather/GetTemperature"`,
+		"http://weather.example.org/soap11",
+		"http://weather.example.org/soap12",
+		"SOAP 1.1",
+		"SOAP 1.2",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("CliWSDL output missing %q. Got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "http://weather.example.org/http") {
+		t.Errorf("CliWSDL output should not list the non-SOAP http: port. Got:\n%s", out)
+	}
+}
+
+func TestCliSoapQuick_WithWSDL(t *testing.T) {
+	var gotSOAPAction string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSOAPAction = r.Header.Get("SOAPAction")
+		fmt.Fprint(w, `<soap:Envelope><soap:Body><Response>OK</Response></soap:Body></soap:Envelope>`)
+	}))
+	defer ts.Close()
+
+	wsdlPath := writeTempFile(t, "service.wsdl", testWSDL)
+
+	out := captureStdout(t, func() {
+		CliSoapQuick([]string{
+			"--wsdl=" + wsdlPath,
+			"--url=" + ts.URL, // override endpoint, contract still comes from the WSDL
+			"--action=GetTemperature",
+		})
+	})
+
+	if gotSOAPAction != `"http://example.org/weather/GetTemperature"` {
+		t.Errorf("SOAPAction = %q, want the WSDL's exact value", gotSOAPAction)
+	}
+	if !strings.Contains(out, "Response") {
+		t.Errorf("CliSoapQuick --wsdl output missing expected content: %q", out)
 	}
 }

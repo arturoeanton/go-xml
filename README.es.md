@@ -17,6 +17,7 @@ Está diseñado para **Integración Empresarial** (Bancos, Gobierno, SOAP) donde
 *   **Motor de Validación**: Define reglas de negocio (Regex, Rango, Enum, Tipo).
 *   **Herramienta CLI (r2xml)**: Navaja suiza integrada para XML (Format, JSON, CSV, SOAP).
 *   **Cliente SOAP Dinámico**: Llama servicios SOAP 1.1 o 1.2 sin generar código. Soporta **mTLS**, **WS-Security**, errores `SoapFault` tipados y reintentos configurables.
+*   **Descubrimiento de WSDL**: Apuntá `ParseWSDL` a un `.wsdl` y obtené operaciones validadas — `soapAction`, endpoint y versión SOAP exactos, en vez de adivinarlos a mano.
 *   **Firma Digital**: Firmas **XML-DSig** y **XAdES-BES** con **Canonicalización XML Exclusiva** real (la variante que las firmas enveloped realmente necesitan), más `Verify()` para comprobar una firma producida de punta a punta en vez de confiar ciegamente.
 
 ## 📦 Instalación
@@ -172,6 +173,29 @@ if err := signer.Verify([]byte(finalXML)); err != nil {
 > openssl pkcs12 -in cert.p12 -out cert.pem -clcerts -nokeys
 > openssl pkcs12 -in cert.p12 -out key.pem -nocerts -nodes
 > ```
+
+### 7. Descubrimiento de WSDL (validar antes de llamar)
+`ParseWSDL` lee un archivo WSDL 1.1 y lo resuelve en operaciones invocables — el `soapAction`, endpoint y versión SOAP exactos, en vez de la convención adivinada `namespace/action` de `SoapClient.Call` (frecuentemente incorrecta: muchos servicios reales usan `soapAction` vacío o una URN sin relación).
+
+```go
+f, _ := os.Open("service.wsdl")
+wsdl, _ := xml.ParseWSDL(f)
+
+for _, op := range wsdl.Operations() {
+    fmt.Println(op.Name, op.SOAPAction, op.Endpoint)
+}
+
+client, _ := xml.NewSoapClientFromWSDL(wsdl) // endpoint/namespace/versión desde el WSDL
+resp, err := client.CallOperation(wsdl, "GetTemperature", payload) // error si la acción no existe
+```
+
+O desde la CLI:
+```bash
+r2xml wsdl service.wsdl                                    # listar operaciones descubiertas
+r2xml call --wsdl=service.wsdl --action=GetTemperature --data="city=Bogota"
+```
+
+**Alcance**: solo WSDL 1.1, un solo archivo (sin `wsdl:import`/`xsd:import`), sin modelado de tipos XSD — las partes de mensaje exponen su nombre de elemento/tipo resuelto, no un árbol de esquema completo. Cubre el caso común (descubrir y validar servicios SOAP reales) sin el peso de un generador de código completo.
 
 ## ⚙️ Arquitectura: OrderedMap
 

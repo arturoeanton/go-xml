@@ -229,9 +229,10 @@ func extractSoapFault(respMap *OrderedMap) *SoapFault {
 	return sf
 }
 
-// Call ejecuta una acción SOAP.
-// payload puede ser *OrderedMap (respeta orden) o map[string]any (ordena alfabéticamente).
-func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
+// buildEnvelope constructs the soap:Envelope (payload, WS-Security header,
+// body) for action/payload and returns its encoded bytes. Shared by Call and
+// CallOperation.
+func (c *SoapClient) buildEnvelope(action string, payload any) ([]byte, error) {
 	// 1. Preparar el Payload
 	actionNode := NewMap()
 	actionNode.Put("@xmlns", c.Namespace)
@@ -295,18 +296,13 @@ func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	if err := enc.Encode(envelope); err != nil {
 		return nil, fmt.Errorf("failed to encode SOAP request: %w", err)
 	}
-	bodyBytes := buf.Bytes()
+	return buf.Bytes(), nil
+}
 
-	// SOAPAction / Content-Type action
-	base := c.Namespace
-	if c.SoapActionBase != "" {
-		base = c.SoapActionBase
-	}
-	cleanBase := strings.TrimSuffix(base, "/")
-	cleanAction := strings.TrimPrefix(action, "/")
-	soapAction := fmt.Sprintf("%s/%s", cleanBase, cleanAction)
-
-	// 6. Send (con reintentos solo ante error de transporte)
+// doCall sends bodyBytes to the endpoint with the given exact soapAction
+// (retrying on transport errors per WithRetry), parses the response, and
+// surfaces a *SoapFault for non-2xx responses that carry one.
+func (c *SoapClient) doCall(bodyBytes []byte, soapAction string) (*OrderedMap, error) {
 	attempts := c.RetryAttempts
 	if attempts < 1 {
 		attempts = 1
@@ -354,13 +350,11 @@ func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	}
 	defer resp.Body.Close()
 
-	// 7. Parse
 	respMap, err := MapXML(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response (status %d): %w", resp.StatusCode, err)
 	}
 
-	// 8. Fault Handling
 	if resp.StatusCode != http.StatusOK {
 		if fault := extractSoapFault(respMap); fault != nil {
 			return nil, fault
@@ -369,4 +363,57 @@ func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	}
 
 	return respMap, nil
+}
+
+// Call ejecuta una acción SOAP.
+// payload puede ser *OrderedMap (respeta orden) o map[string]any (ordena alfabéticamente).
+// SOAPAction se reconstruye como "namespace/action" (o SoapActionBase/action) —
+// una convención que no coincide con el soapAction real de muchos servicios.
+// Si tenés el WSDL, usá CallOperation para el valor exacto.
+func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
+	bodyBytes, err := c.buildEnvelope(action, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	base := c.Namespace
+	if c.SoapActionBase != "" {
+		base = c.SoapActionBase
+	}
+	cleanBase := strings.TrimSuffix(base, "/")
+	cleanAction := strings.TrimPrefix(action, "/")
+	soapAction := fmt.Sprintf("%s/%s", cleanBase, cleanAction)
+
+	return c.doCall(bodyBytes, soapAction)
+}
+
+// CallOperation ejecuta action usando el soapAction, endpoint y versión SOAP
+// exactos declarados en w (en vez de la convención adivinada de Call).
+// Devuelve error si action no existe en el WSDL.
+func (c *SoapClient) CallOperation(w *WSDL, action string, payload any) (*OrderedMap, error) {
+	op, err := w.Operation(action)
+	if err != nil {
+		return nil, err
+	}
+
+	bodyBytes, err := c.buildEnvelope(action, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.doCall(bodyBytes, op.SOAPAction)
+}
+
+// NewSoapClientFromWSDL construye un SoapClient usando el primer endpoint
+// SOAP declarado en w (ver WSDL.Endpoint) — namespace y versión incluidos.
+func NewSoapClientFromWSDL(w *WSDL, opts ...ClientOption) (*SoapClient, error) {
+	endpoint, err := w.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+	ops := w.Operations()
+	namespace, version := ops[0].Namespace, ops[0].Version
+
+	allOpts := append([]ClientOption{WithSOAPVersion(version)}, opts...)
+	return NewSoapClient(endpoint, namespace, allOpts...), nil
 }
