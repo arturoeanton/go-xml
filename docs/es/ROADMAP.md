@@ -11,10 +11,9 @@
 - [x] **Herramientas CLI**: Comandos `fmt`, `csv`, `json`, `soap`.
 - [x] **Soporte mTLS**: Certificados de Cliente para SOAP.
 - [x] **Exportación CSV**: Aplanar listas XML a CSV.
-- [x] **Firma Digital**: XML-DSig y XAdES-BES nativos (`xml.Signer`).
+- [x] **Firma Digital**: XML-DSig y XAdES-BES con Canonicalización XML Exclusiva real, más `Signer.Verify` (`xml.Signer`).
+- [x] **Soporte SOAP 1.2**: `WithSOAPVersion`, `SoapFault` tipado, `WithRetry`.
 
 ## 🚀 v2.x (Futuro / En Progreso)
-- [ ] **Soporte SOAP 1.2**: Manejo de diferentes namespaces de sobre.
 - [ ] **Parser WSDL**: Inspección dinámica de WSDL para validar acciones.
 - [ ] **Procesamiento Paralelo**: Streaming de chunks en goroutines paralelas.
-- [ ] **Puente gRPC**: Auto-conversión de payloads XML a mensajes dinámicos Protobuf.

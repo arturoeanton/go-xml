@@ -11,10 +11,9 @@
 - [x] **CLI Tools**: `fmt`, `csv`, `json`, `soap` commands.
 - [x] **mTLS Support**: Client Certificates for SOAP.
 - [x] **CSV Export**: Flatten XML lists to CSV.
-- [x] **Digital Signatures**: Built-in XML-DSig and XAdES-BES signing (`xml.Signer`).
+- [x] **Digital Signatures**: XML-DSig and XAdES-BES signing with real Exclusive XML Canonicalization, plus `Signer.Verify` (`xml.Signer`).
+- [x] **SOAP 1.2 Support**: `WithSOAPVersion`, typed `SoapFault`, `WithRetry`.
 
 ## 🚀 v2.x (Future / In Progress)
-- [ ] **SOAP 1.2 Support**: Handle different envelope namespaces.
 - [ ] **WSDL Parser**: Dynamic inspection of WSDL to validate actions.
 - [ ] **Parallel Processing**: Streaming chunks in parallel goroutines.
-- [ ] **gRPC Bridge**: Auto-convert XML payloads to Protobuf dynamic messages.
