@@ -123,7 +123,7 @@ func MapXML(r io.Reader, opts ...Option) (*OrderedMap, error) {
 			if cfg.isSoupMode {
 				continue
 			}
-			return nil, err
+			return nil, wrapError(err)
 		}
 
 		switch se := token.(type) {
