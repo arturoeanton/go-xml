@@ -12,23 +12,23 @@ import (
 )
 
 // ============================================================================
-// REGISTRO DE DEMOS
+// DEMO REGISTRY
 // ============================================================================
 
-// Mapa que vincula el nombre del flag --demo [nombre] con la función
+// Maps the name given to `demo [name]` to its function
 var demoRegistry = map[string]func(){
-	// v0.1 - Lo Básico
+	// v0.1 - Basics
 	"basic": demo_v1_BasicParsing,
 	"array": demo_v1_ForceArray,
 
-	// v1.0 - Robustez
+	// v1.0 - Robustness
 	"html": demo_v1_HtmlLenient,
 
-	// v2.0 - Namespaces y Querys
+	// v2.0 - Namespaces and Queries
 	"ns":    demo_v2_Namespaces,
 	"query": demo_v2_QueryAdvanced,
 
-	// v2.1 - Hooks y CDATA
+	// v2.1 - Hooks and CDATA
 	"hooks": demo_v2_HooksAndTypes,
 	"cdata": demo_v2_MarshalCDATA,
 
@@ -48,14 +48,14 @@ var demoRegistry = map[string]func(){
 	"dian2": demo_dian_ubl,
 }
 
-// RunDemos: El orquestador que llama el main()
+// RunDemos: the orchestrator called from main()
 func RunDemos(arg string) {
 	fmt.Println("========================================")
-	fmt.Println("   r2/xml - Galería de Demos Histórica")
+	fmt.Println("   r2/xml - Historical Demo Gallery")
 	fmt.Println("========================================")
 
 	if arg == "all" || arg == "" {
-		// Ejecutar TODAS en orden lógico (no por mapa aleatorio)
+		// Run ALL demos in logical order (not random map order)
 		runSequence := []string{
 			"basic", "array", "html",
 			"ns", "query", "hooks",
@@ -70,18 +70,18 @@ func RunDemos(arg string) {
 			time.Sleep(300 * time.Millisecond)
 		}
 	} else {
-		// Ejecutar UNA específica
+		// Run a single demo
 		if fn, exists := demoRegistry[arg]; exists {
 			printHeader(arg)
 			fn()
 		} else {
-			fmt.Printf("❌ Demo '%s' no encontrada.\nDemos disponibles: %v\n", arg, getDemoKeys())
+			fmt.Printf("❌ Demo '%s' not found.\nAvailable demos: %v\n", arg, getDemoKeys())
 		}
 	}
 }
 
 func printHeader(name string) {
-	fmt.Printf("\n>>> Ejecutando Demo: [%s] <<<\n", strings.ToUpper(name))
+	fmt.Printf("\n>>> Running Demo: [%s] <<<\n", strings.ToUpper(name))
 	fmt.Println(strings.Repeat("-", 40))
 }
 
@@ -94,15 +94,15 @@ func getDemoKeys() []string {
 }
 
 // ============================================================================
-// DEMOS v0.1 - FUNDAMENTOS
+// DEMOS v0.1 - FUNDAMENTALS
 // ============================================================================
 
 func demo_v1_BasicParsing() {
-	fmt.Println("Objetivo: Leer XML simple sin Structs.")
+	fmt.Println("Goal: Read simple XML without structs.")
 
-	xmlData := `<library><book id="1">El Principito</book></library>`
+	xmlData := `<library><book id="1">The Little Prince</book></library>`
 
-	// 1. Parseo
+	// 1. Parse
 	m, err := xml.MapXML(strings.NewReader(xmlData))
 	if err != nil {
 		panic(err)
@@ -111,34 +111,34 @@ func demo_v1_BasicParsing() {
 	title, _ := xml.Query(m, "library/book/#text")
 	id, _ := xml.Query(m, "library/book/@id")
 
-	fmt.Printf("Mapa Resultante: %+v\n", m)
-	fmt.Printf("Título: %s (ID: %s)\n", title, id)
+	fmt.Printf("Resulting Map: %+v\n", m)
+	fmt.Printf("Title: %s (ID: %s)\n", title, id)
 }
 
 func demo_v1_ForceArray() {
-	fmt.Println("Objetivo: Resolver ambigüedad JSON (Single vs Array).")
+	fmt.Println("Goal: Resolve JSON ambiguity (Single vs Array).")
 
-	// Caso dificil: Solo hay un libro, pero el frontend espera una lista
-	xmlData := `<library><book>Solo Uno</book></library>`
+	// Tricky case: there is only one book, but the frontend expects a list
+	xmlData := `<library><book>Only One</book></library>`
 
 	m, _ := xml.MapXML(strings.NewReader(xmlData), xml.ForceArray("book"))
 
-	// Verificamos que sea []any
+	// Verify it is []any
 	lib := m.Get("library").(*xml.OrderedMap)
-	books := lib.Get("book").([]any) // Si falla el cast, ForceArray falló
+	books := lib.Get("book").([]any) // If the cast fails, ForceArray failed
 
-	fmt.Printf("Tipo de 'book': %T (Longitud: %d)\n", books, len(books))
+	fmt.Printf("Type of 'book': %T (Length: %d)\n", books, len(books))
 }
 
 // ============================================================================
-// DEMOS v1.0 - ROBUSTEZ (HTML)
+// DEMOS v1.0 - ROBUSTNESS (HTML)
 // ============================================================================
 
 func demo_v1_HtmlLenient() {
-	fmt.Println("Objetivo: Leer HTML sucio (tags sin cerrar).")
+	fmt.Println("Goal: Read dirty HTML (unclosed tags).")
 
-	// <br> y <meta> no tienen cierre
-	htmlData := `<html><body>Hola<br>Mundo<br><meta charset="utf-8"></body></html>`
+	// <br> and <meta> have no closing tag
+	htmlData := `<html><body>Hello<br>World<br><meta charset="utf-8"></body></html>`
 
 	m, err := xml.MapXML(strings.NewReader(htmlData), xml.EnableExperimental())
 	if err != nil {
@@ -146,9 +146,9 @@ func demo_v1_HtmlLenient() {
 		return
 	}
 
-	// Usamos Query para verificar que leyó después de los br
+	// Use Query to verify content was read past the <br> tags
 	body, _ := xml.Query(m, "html/body/#text")
-	fmt.Printf("Contenido leído exitosamente: %v\n", body)
+	fmt.Printf("Content read successfully: %v\n", body)
 }
 
 // ============================================================================
@@ -156,21 +156,21 @@ func demo_v1_HtmlLenient() {
 // ============================================================================
 
 func demo_v2_Namespaces() {
-	fmt.Println("Objetivo: Limpiar URLs largas de los keys.")
+	fmt.Println("Goal: Clean long URLs out of the keys.")
 
-	xmlData := `<root xmlns:h="http://w3.org/html"><h:table>Datos</h:table></root>`
+	xmlData := `<root xmlns:h="http://w3.org/html"><h:table>Data</h:table></root>`
 
 	m, _ := xml.MapXML(strings.NewReader(xmlData),
 		xml.RegisterNamespace("html", "http://w3.org/html"),
 	)
 
-	// Ahora podemos acceder como "html:table" en vez de la URL completa
+	// Now we can access it as "html:table" instead of the full URL
 	tableVal, _ := xml.Query(m, "root/html:table/#text")
-	fmt.Printf("Valor con Namespace limpio: %v\n", tableVal)
+	fmt.Printf("Value with clean Namespace: %v\n", tableVal)
 }
 
 func demo_v2_QueryAdvanced() {
-	fmt.Println("Objetivo: Búsqueda profunda e iterativa (QueryAll).")
+	fmt.Println("Goal: Deep, iterative search (QueryAll).")
 
 	xmlData := `
 	<store>
@@ -180,10 +180,10 @@ func demo_v2_QueryAdvanced() {
 
 	m, _ := xml.MapXML(strings.NewReader(xmlData), xml.ForceArray("section", "item"))
 
-	// QueryAll aplana los arrays intermedios (section -> item)
+	// QueryAll flattens intermediate arrays (section -> item)
 	items, _ := xml.QueryAll(m, "store/section/item/#text")
 
-	fmt.Printf("Items encontrados (3 esperados): %v\n", items)
+	fmt.Printf("Items found (3 expected): %v\n", items)
 }
 
 // ============================================================================
@@ -191,11 +191,11 @@ func demo_v2_QueryAdvanced() {
 // ============================================================================
 
 func demo_v2_HooksAndTypes() {
-	fmt.Println("Objetivo: Transformar strings a Tipos Go (Time/Int) al vuelo.")
+	fmt.Println("Goal: Transform strings into Go types (Time/Int) on the fly.")
 
 	xmlData := `<log><date>2025-12-31</date><count>99</count></log>`
 
-	// Hook para Fechas
+	// Hook for dates
 	dateHook := func(s string) any {
 		t, _ := time.Parse("2006-01-02", s)
 		return t
@@ -203,28 +203,28 @@ func demo_v2_HooksAndTypes() {
 
 	m, _ := xml.MapXML(strings.NewReader(xmlData),
 		xml.WithValueHook("date", dateHook),
-		xml.EnableExperimental(), // Infiere "99" -> int
+		xml.EnableExperimental(), // Infers "99" -> int
 	)
 
 	dateVal, _ := xml.Query(m, "log/date")
 	countVal, _ := xml.Query(m, "log/count")
 
-	fmt.Printf("Fecha Tipo: %T, Valor: %v\n", dateVal, dateVal)
-	fmt.Printf("Count Tipo: %T, Valor: %v\n", countVal, countVal)
+	fmt.Printf("Date Type: %T, Value: %v\n", dateVal, dateVal)
+	fmt.Printf("Count Type: %T, Value: %v\n", countVal, countVal)
 }
 
 func demo_v2_MarshalCDATA() {
-	fmt.Println("Objetivo: Generar XML con CDATA y Comentarios.")
+	fmt.Println("Goal: Generate XML with CDATA and Comments.")
 
 	data := map[string]any{
 		"msg": map[string]any{
-			"#comments": []string{" Esto es HTML raw "},
-			"#cdata":    "<b>Negrita</b>",
+			"#comments": []string{" This is raw HTML "},
+			"#cdata":    "<b>Bold</b>",
 		},
 	}
 
-	// Usamos el Encoder (que usa la misma lógica que Marshal v2)
-	fmt.Println("XML Generado:")
+	// Use the Encoder (same logic as Marshal v2)
+	fmt.Println("Generated XML:")
 	xml.NewEncoder(os.Stdout, xml.WithPrettyPrint()).Encode(data)
 	fmt.Println()
 }
@@ -234,25 +234,25 @@ func demo_v2_MarshalCDATA() {
 // ============================================================================
 
 func demo_v3_Validation() {
-	fmt.Println("Objetivo: Validar reglas de negocio (Min, Regex, Enum).")
+	fmt.Println("Goal: Validate business rules (Min, Regex, Enum).")
 
 	xmlData := `<user><age>17</age><role>hacker</role></user>`
 	m, _ := xml.MapXML(strings.NewReader(xmlData), xml.EnableExperimental())
 
 	rules := []xml.Rule{
-		{Path: "user/age", Type: "int", Min: 18},                             // Falla
-		{Path: "user/role", Type: "string", Enum: []string{"admin", "user"}}, // Falla
+		{Path: "user/age", Type: "int", Min: 18},                             // Fails
+		{Path: "user/role", Type: "string", Enum: []string{"admin", "user"}}, // Fails
 	}
 
 	errs := xml.Validate(m, rules)
-	fmt.Println("Errores encontrados (Esperados):")
+	fmt.Println("Errors found (Expected):")
 	for _, e := range errs {
 		fmt.Printf(" - ❌ %s\n", e)
 	}
 }
 
 func demo_v3_StreamingDecoder() {
-	fmt.Println("Objetivo: Leer archivos gigantes (Generics) sin cargar RAM.")
+	fmt.Println("Goal: Read huge files (Generics) without loading them into RAM.")
 
 	xmlData := `
 	<orders>
@@ -260,7 +260,7 @@ func demo_v3_StreamingDecoder() {
 		<Order><id>102</id><total>100.0</total></Order>
 	</orders>`
 
-	// Definimos struct parcial
+	// Define a partial struct
 	type Order struct {
 		ID    int     `xml:"id"`
 		Total float64 `xml:"total"`
@@ -268,32 +268,32 @@ func demo_v3_StreamingDecoder() {
 
 	stream := xml.NewStream[Order](strings.NewReader(xmlData), "Order")
 
-	fmt.Println("Iterando Stream:")
+	fmt.Println("Iterating Stream:")
 	for o := range stream.Iter() {
-		fmt.Printf(" -> Orden %d: $%.2f\n", o.ID, o.Total)
+		fmt.Printf(" -> Order %d: $%.2f\n", o.ID, o.Total)
 	}
 }
 
 func demo_v3_StreamingEncoder() {
-	fmt.Println("Objetivo: Escribir XML directo a io.Writer con Atributos Root.")
+	fmt.Println("Goal: Write XML straight to an io.Writer with Root attributes.")
 
-	// Datos con atributos en el ROOT
+	// Data with attributes on the ROOT
 	data := map[string]any{
 		"feed": map[string]any{
-			"@lang":    "es-AR", // Feature: Root Attribute
+			"@lang":    "en-US", // Feature: Root Attribute
 			"@version": "2.0",   // Feature: Root Attribute
-			"title":    "Blog Tech",
+			"title":    "Tech Blog",
 		},
 	}
 
-	// Escribir directo a Stdout (io.Writer) sin crear string intermedio
+	// Write straight to Stdout (io.Writer) without an intermediate string
 	encoder := xml.NewEncoder(os.Stdout, xml.WithPrettyPrint())
 
-	fmt.Println("Generando XML directo a consola:")
+	fmt.Println("Generating XML straight to the console:")
 	if err := encoder.Encode(data); err != nil {
 		fmt.Println("Error encoding:", err)
 	}
-	fmt.Println() // Salto de línea final
+	fmt.Println() // Trailing newline
 }
 
 // ============================================================================
@@ -301,10 +301,10 @@ func demo_v3_StreamingEncoder() {
 // ============================================================================
 
 func demo_v3_LegacyCharsets() {
-	fmt.Println("Objetivo: Parsear XML codificado en ISO-8859-1 (Latin1).")
+	fmt.Println("Goal: Parse XML encoded in ISO-8859-1 (Latin1).")
 
-	// "café" en ISO-8859-1 es: 0x63, 0x61, 0x66, 0xE9
-	// Si lo leyéramos como UTF-8 sin CharsetReader, fallaría o daría basura.
+	// "café" in ISO-8859-1 is: 0x63, 0x61, 0x66, 0xE9
+	// Reading it as UTF-8 without a CharsetReader would fail or produce garbage.
 	isoData := []byte{
 		'<', 'd', 'a', 't', 'a', '>',
 		'c', 'a', 'f', 0xE9,
@@ -313,7 +313,7 @@ func demo_v3_LegacyCharsets() {
 
 	fmt.Println("Input (Bytes):", isoData)
 
-	reader := strings.NewReader(string(isoData)) // Nota: string(bytes) preserva los bytes tal cual en Go
+	reader := strings.NewReader(string(isoData)) // Note: string(bytes) preserves the raw bytes in Go
 
 	m, err := xml.MapXML(reader, xml.EnableLegacyCharsets())
 	if err != nil {
@@ -321,12 +321,12 @@ func demo_v3_LegacyCharsets() {
 		return
 	}
 
-	fmt.Printf("Mapa Resultante: %v\n", m)
-	// Output esperado: cafÃ© (UTF-8) si la consola lo soporta, o los bytes correctos.
+	fmt.Printf("Resulting Map: %v\n", m)
+	// Expected output: café (UTF-8) if the console supports it, or the correct bytes.
 }
 
 func demo_v3_JSONConversion() {
-	fmt.Println("Objetivo: Convertir XML a JSON limpio (sin metadatos).")
+	fmt.Println("Goal: Convert XML to clean JSON (no metadata).")
 
 	xmlData := `<user id="42"><name>Alice</name><active>true</active></user>`
 	reader := strings.NewReader(xmlData)
@@ -346,13 +346,13 @@ func demo_soap() {
 	// Real public service (DataFlex Web Service for Country Info)
 	// WSDL: http://webservices.oorsprong.org/websamples.countryinfo/CountryInfoService.wso?WSDL
 
-	// NOTA: Este servicio es estricto con las URLs.
+	// NOTE: This service is strict about URLs.
 	endpoint := "http://webservices.oorsprong.org/websamples.countryinfo/CountryInfoService.wso"
 
-	// El Namespace exacto definido en su WSDL para el body
+	// The exact Namespace defined in its WSDL for the body
 	namespace := "http://www.oorsprong.org/websamples.countryinfo"
 
-	// Opcional: Configurar el Header SOAPAction base (aunque este cliente lo deduce si es estándar)
+	// Optional: configure the base SOAPAction header (though this client derives it when standard)
 	client := xml.NewSoapClient(endpoint, namespace)
 
 	fmt.Println("=== Demo: Dynamic SOAP Client (Real Service) ===")
@@ -362,14 +362,14 @@ func demo_soap() {
 	// ---------------------------------------------------------
 	fmt.Println("\n1. Calling ListOfContinentsByName...")
 
-	// Este servicio no requiere parámetros para esta llamada
+	// This service takes no parameters for this call
 	resp, err := client.Call("ListOfContinentsByName", nil)
 	if err != nil {
 		log.Fatalf("Error calling ListOfContinentsByName: %v", err)
 	}
 
 	// Dynamic Parsing
-	// El servicio real devuelve:
+	// The real service returns:
 	// <m:ListOfContinentsByNameResponse>
 	//   <m:ListOfContinentsByNameResult>
 	//     <m:tContinent>
@@ -388,7 +388,7 @@ func demo_soap() {
 	}
 
 	// ---------------------------------------------------------
-	// Call 2: FullCountryInfo (Probemos algo con parámetros)
+	// Call 2: FullCountryInfo (a call that takes parameters)
 	// ---------------------------------------------------------
 	fmt.Println("\n2. Calling FullCountryInfo (Code: AR)...")
 
@@ -400,7 +400,7 @@ func demo_soap() {
 	if err != nil {
 		log.Printf("Error calling FullCountryInfo: %v", err)
 	} else {
-		// La respuesta está anidada en FullCountryInfoResult
+		// The response is nested inside FullCountryInfoResult
 		name, _ := xml.Query(resp2, "//sName")
 		capital, _ := xml.Query(resp2, "//sCapitalCity")
 		currency, _ := xml.Query(resp2, "//sCurrencyISOCode")
@@ -416,9 +416,9 @@ func demo_soap() {
 func demo_soap2() {
 	client := xml.NewSoapClient("http://www.dneonline.com/calculator.asmx", "http://tempuri.org/")
 
-	// Construir Carga
-	// El Envelope y Body se manejan automáticamente.
-	// Solo provees el contenido dentro del tag de la Acción.
+	// Build the payload
+	// The Envelope and Body are handled automatically.
+	// You only provide the content inside the Action tag.
 	payload := map[string]any{
 		"intA": 60,
 		"intB": 20,
@@ -432,18 +432,18 @@ func demo_soap2() {
 			panic(err)
 		}
 		result, _ := xml.Query(resp, "//"+method+"Result")
-		fmt.Printf("Resultado %s: %v\n", method, result)
+		fmt.Printf("%s result: %v\n", method, result)
 	}
 }
 
 func demo_dian() {
-	fmt.Println("   -> Cargando certificados...")
+	fmt.Println("   -> Loading certificates...")
 
-	// 1. Validar existencia de archivos
+	// 1. Check that the files exist
 	certPath := "certificado.crt"
 	keyPath := "privada.key"
 	if _, err := os.Stat(certPath); os.IsNotExist(err) {
-		fmt.Printf("❌ Error: Falta '%s'. Copialo de la demo anterior.\n", certPath)
+		fmt.Printf("❌ Error: '%s' is missing. Copy it from the previous demo.\n", certPath)
 		return
 	}
 
@@ -451,17 +451,17 @@ func demo_dian() {
 	key, _ := os.ReadFile(keyPath)
 	signer, err := xml.NewSigner(crt, key)
 	if err != nil {
-		fmt.Printf("❌ Error parseando llaves: %v\n", err)
+		fmt.Printf("❌ Error parsing keys: %v\n", err)
 		return
 	}
-	fmt.Println("   -> Llaves cargadas correctamente.")
+	fmt.Println("   -> Keys loaded successfully.")
 
-	// 2. Crear el CONTENIDO de la factura (Los datos internos)
-	fmt.Println("   -> Generando XML...")
+	// 2. Build the invoice CONTENT (the inner data)
+	fmt.Println("   -> Generating XML...")
 
-	innerInvoice := xml.NewMap() // Este será el contenido de <Invoice>
+	innerInvoice := xml.NewMap() // This will be the content of <Invoice>
 	innerInvoice.Set("@xmlns", "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2")
-	innerInvoice.Set("@xmlns:ds", "http://www.w3.org/2000/09/xmldsig#") // Namespace firma
+	innerInvoice.Set("@xmlns:ds", "http://www.w3.org/2000/09/xmldsig#") // Signature namespace
 
 	innerInvoice.Set("ID", "SETT-100")
 	innerInvoice.Set("IssueDate", "2025-12-19")
@@ -470,100 +470,96 @@ func demo_dian() {
 	innerInvoice.Set("LegalMonetaryTotal/LineExtensionAmount", 1000.00)
 	innerInvoice.Set("LegalMonetaryTotal/PayableAmount", 1000.00)
 
-	// 3. Crear el WRAPPER ROOT (Para cumplir la regla de 1 solo elemento)
+	// 3. Create the ROOT wrapper (to satisfy the single-root-element rule)
 	doc := xml.NewMap()
-	doc.Set("Invoice", innerInvoice) // <--- AQUÍ ESTÁ LA SOLUCIÓN
+	doc.Set("Invoice", innerInvoice)
 
-	// 4. Serializar para obtener los bytes a firmar
+	// 4. Serialize to get the bytes to sign
 	invoiceBytes, err := xml.Marshal(doc)
 	if err != nil {
-		fmt.Printf("❌ Error generando XML base: %v\n", err)
+		fmt.Printf("❌ Error generating base XML: %v\n", err)
 		return
 	}
 
-	// 5. Generar Firma
-	fmt.Println("   -> Calculando Firma Digital (SHA256 + RSA)...")
+	// 5. Generate the signature
+	fmt.Println("   -> Computing Digital Signature (SHA256 + RSA)...")
 	signatureMap, err := signer.CreateXadesSignature([]byte(invoiceBytes))
 	if err != nil {
-		fmt.Printf("❌ Error firmando: %v\n", err)
+		fmt.Printf("❌ Error signing: %v\n", err)
 		return
 	}
 
-	// 6. Inyectar Firma en el XML
-	// La insertamos dentro de 'innerInvoice', no en 'doc'
+	// 6. Inject the signature into the XML
+	// It goes inside 'innerInvoice', not 'doc'
 	innerInvoice.Set("ds:Signature", signatureMap)
 
-	// 7. Resultado Final
+	// 7. Final result
 	finalXML, _ := xml.Marshal(doc)
 
-	fmt.Println("\n✅ XML FIRMADO EXITOSAMENTE (DIAN READY):")
+	fmt.Println("\n✅ XML SIGNED SUCCESSFULLY (DIAN READY):")
 	fmt.Println("--------------------------------------------------")
 	fmt.Println(finalXML)
 	fmt.Println("--------------------------------------------------")
 
 	if err := signer.Verify([]byte(finalXML)); err != nil {
-		fmt.Printf("❌ Verify falló: %v\n", err)
+		fmt.Printf("❌ Verify failed: %v\n", err)
 		return
 	}
-	fmt.Println("✅ Verify: la firma es válida (digest + RSA verificados).")
+	fmt.Println("✅ Verify: the signature is valid (digest + RSA verified).")
 }
 
-//////
-
-/////
-
 func demo_dian_ubl() {
-	fmt.Println(">>> Generando Factura Electrónica DIAN (UBL 2.1) con CUFE <<<")
+	fmt.Println(">>> Generating DIAN Electronic Invoice (UBL 2.1) with CUFE <<<")
 
-	// 1. Cargar Certificados
+	// 1. Load certificates
 	crt, err := os.ReadFile("certificado.crt")
 	if err != nil {
-		fmt.Println("❌ Error cargando certificado.crt:", err)
+		fmt.Println("❌ Error loading certificado.crt:", err)
 		return
 	}
 	key, err := os.ReadFile("privada.key")
 	if err != nil {
-		fmt.Println("❌ Error cargando privada.key:", err)
+		fmt.Println("❌ Error loading privada.key:", err)
 		return
 	}
 
-	// Wrapper de firma
+	// Signing wrapper
 	signer, _ := xml.NewSigner(crt, key)
 
 	// ===============================================================
-	// DATOS VARIABLES
+	// VARIABLE DATA
 	// ===============================================================
-	numFac := "SETP-99000001"
-	nitEmisor := "800197268"
-	nitReceptor := "222222222222"
-	valTotal := "1000.00"
-	valImpuestos := "0.00"
-	valPagar := "1000.00"
-	tipoAmbiente := "2" // Pruebas
-	claveTecnica := "fc8eac422eba16e22ffd8c6f94b3940a6e681623"
+	invoiceNumber := "SETP-99000001"
+	supplierNIT := "800197268"
+	customerNIT := "222222222222"
+	totalAmount := "1000.00"
+	taxAmount := "0.00"
+	payableAmount := "1000.00"
+	environmentType := "2" // Testing
+	technicalKey := "fc8eac422eba16e22ffd8c6f94b3940a6e681623"
 
 	now := time.Now()
 	issueDate := now.Format("2006-01-02")
-	// CORRECCION HORA: Concatenamos el offset fijo para Colombia (-05:00)
-	// para evitar que Go interprete el 05 del final como "segundos" repetidos.
+	// TIME FIX: concatenate the fixed offset for Colombia (-05:00)
+	// so Go does not interpret the trailing 05 as repeated "seconds".
 	issueTime := now.Format("15:04:05") + "-05:00"
 
 	// ===============================================================
-	// CÁLCULO DEL CUFE
+	// CUFE COMPUTATION
 	// ===============================================================
-	fmt.Println("   -> Calculando CUFE...")
+	fmt.Println("   -> Computing CUFE...")
 	cufe := CalculateCUFE(
-		numFac, issueDate, issueTime, valTotal,
-		"01", valImpuestos,
+		invoiceNumber, issueDate, issueTime, totalAmount,
+		"01", taxAmount,
 		"04", "0.00",
-		valPagar,
-		nitEmisor, nitReceptor,
-		claveTecnica, tipoAmbiente,
+		payableAmount,
+		supplierNIT, customerNIT,
+		technicalKey, environmentType,
 	)
-	fmt.Printf("      CUFE Generado: %s...\n", cufe[:15])
+	fmt.Printf("      Generated CUFE: %s...\n", cufe[:15])
 
 	// ===============================================================
-	// CONSTRUCCIÓN DEL CONTENIDO DE LA FACTURA
+	// INVOICE CONTENT CONSTRUCTION
 	// ===============================================================
 	invoiceData := xml.NewMap()
 
@@ -578,14 +574,14 @@ func demo_dian_ubl() {
 	invoiceData.Set("@xmlns:xsi", "http://www.w3.org/2001/XMLSchema-instance")
 	invoiceData.Set("@xsi:schemaLocation", "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2 http://docs.oasis-open.org/ubl/os-UBL-2.1/xsd/maindoc/UBL-Invoice-2.1.xsd")
 
-	// C. DATOS DE CABECERA
+	// C. HEADER DATA
 	invoiceData.Set("cbc:UBLVersionID", "UBL 2.1")
 	invoiceData.Set("cbc:CustomizationID", "10")
 	invoiceData.Set("cbc:ProfileID", "DIAN 2.1: Factura Electrónica de Venta")
-	invoiceData.Set("cbc:ProfileExecutionID", tipoAmbiente)
-	invoiceData.Set("cbc:ID", numFac)
+	invoiceData.Set("cbc:ProfileExecutionID", environmentType)
+	invoiceData.Set("cbc:ID", invoiceNumber)
 
-	// CORRECCION: CUFE (Valor + Atributo)
+	// FIX: CUFE (value + attribute)
 	invoiceData.Set("cbc:UUID", map[string]interface{}{
 		"#text":       cufe,
 		"@schemeName": "CUFE-SHA384",
@@ -594,38 +590,38 @@ func demo_dian_ubl() {
 	invoiceData.Set("cbc:IssueDate", issueDate)
 	invoiceData.Set("cbc:IssueTime", issueTime)
 	invoiceData.Set("cbc:InvoiceTypeCode", "01")
-	invoiceData.Set("cbc:Note", "Factura creada con go-xml")
+	invoiceData.Set("cbc:Note", "Invoice created with go-xml")
 	invoiceData.Set("cbc:DocumentCurrencyCode", "COP")
 
-	// D. EMISOR
+	// D. SUPPLIER
 	supplier := xml.NewMap()
 	supplier.Set("cbc:AdditionalAccountID", "1")
 	party := xml.NewMap()
 	scheme := xml.NewMap()
 	scheme.Set("cbc:RegistrationName", "Mi Empresa S.A.S")
-	scheme.Set("cbc:CompanyID", nitEmisor)
+	scheme.Set("cbc:CompanyID", supplierNIT)
 	scheme.Set("@schemeID", "31")
 	scheme.Set("@schemeName", "31")
 	party.Set("cac:PartyTaxScheme", scheme)
 	supplier.Set("cac:Party", party)
 	invoiceData.Set("cac:AccountingSupplierParty", supplier)
 
-	// E. RECEPTOR
+	// E. CUSTOMER
 	customer := xml.NewMap()
 	customer.Set("cbc:AdditionalAccountID", "1")
 	cParty := xml.NewMap()
 	cScheme := xml.NewMap()
 	cScheme.Set("cbc:RegistrationName", "Cliente Final")
-	cScheme.Set("cbc:CompanyID", nitReceptor)
+	cScheme.Set("cbc:CompanyID", customerNIT)
 	cScheme.Set("@schemeID", "13")
 	cParty.Set("cac:PartyTaxScheme", cScheme)
 	customer.Set("cac:Party", cParty)
 	invoiceData.Set("cac:AccountingCustomerParty", customer)
 
-	// F. TOTALES (CORRECCION: Usar maps para valor y moneda)
+	// F. TOTALS (FIX: use maps for value and currency)
 	totals := xml.NewMap()
 
-	// Helper para crear montos monetarios
+	// Helper to build monetary amounts
 	copAmount := func(val string) map[string]interface{} {
 		return map[string]interface{}{
 			"#text":       val,
@@ -633,56 +629,56 @@ func demo_dian_ubl() {
 		}
 	}
 
-	totals.Set("cbc:LineExtensionAmount", copAmount(valTotal))
-	totals.Set("cbc:TaxExclusiveAmount", copAmount(valImpuestos))
-	totals.Set("cbc:TaxInclusiveAmount", copAmount(valPagar))
-	totals.Set("cbc:PayableAmount", copAmount(valPagar))
+	totals.Set("cbc:LineExtensionAmount", copAmount(totalAmount))
+	totals.Set("cbc:TaxExclusiveAmount", copAmount(taxAmount))
+	totals.Set("cbc:TaxInclusiveAmount", copAmount(payableAmount))
+	totals.Set("cbc:PayableAmount", copAmount(payableAmount))
 	invoiceData.Set("cac:LegalMonetaryTotal", totals)
 
-	// G. LINEAS
+	// G. LINES
 	line := xml.NewMap()
 	line.Set("cbc:ID", "1")
 
-	// CORRECCION: Cantidad con unidad
+	// FIX: quantity with unit
 	line.Set("cbc:InvoicedQuantity", map[string]interface{}{
 		"#text":     "1",
 		"@unitCode": "EA",
 	})
 
-	line.Set("cbc:LineExtensionAmount", copAmount(valTotal))
+	line.Set("cbc:LineExtensionAmount", copAmount(totalAmount))
 
 	item := xml.NewMap()
-	item.Set("cbc:Description", "Servicios de Software Go")
+	item.Set("cbc:Description", "Go Software Services")
 	line.Set("cac:Item", item)
 
 	price := xml.NewMap()
-	price.Set("cbc:PriceAmount", copAmount(valTotal))
+	price.Set("cbc:PriceAmount", copAmount(totalAmount))
 	line.Set("cac:Price", price)
 
 	invoiceData.Set("cac:InvoiceLine", line)
 
 	// ===============================================================
-	// PROCESO DE FIRMA
+	// SIGNING PROCESS
 	// ===============================================================
-	fmt.Println("   -> Generando XML base para firma...")
+	fmt.Println("   -> Generating base XML for signing...")
 
-	// Preparamos un "Pre-Root" temporal solo para que el firmador tenga contexto
+	// Build a temporary "pre-root" just so the signer has context
 	preRoot := xml.NewMap()
 	preRoot.Set("Invoice", invoiceData)
 	xmlBytesToSign, _ := xml.Marshal(preRoot)
 
-	fmt.Println("   -> Calculando Firma XAdES...")
+	fmt.Println("   -> Computing XAdES Signature...")
 	sig, err := signer.CreateXadesSignature([]byte(xmlBytesToSign))
 	if err != nil {
-		fmt.Printf("❌ Error firmando: %v\n", err)
+		fmt.Printf("❌ Error signing: %v\n", err)
 		return
 	}
 
 	// ===============================================================
-	// INYECCIÓN DE FIRMA Y RECONSTRUCCIÓN FINAL
+	// SIGNATURE INJECTION AND FINAL RECONSTRUCTION
 	// ===============================================================
 
-	// Estructura de la Extensión
+	// Extension structure
 	extensionContent := xml.NewMap()
 	extensionContent.Set("ds:Signature", sig)
 	ublExtension := xml.NewMap()
@@ -690,10 +686,10 @@ func demo_dian_ubl() {
 	ublExtensions := xml.NewMap()
 	ublExtensions.Set("ext:UBLExtension", ublExtension)
 
-	// Creamos el contenido ordenado
+	// Build the ordered content
 	finalInvoiceContent := xml.NewMap()
 
-	// 1. Namespaces (Atributos @)
+	// 1. Namespaces (@ attributes)
 	for _, key := range invoiceData.Keys() {
 		if len(key) > 0 && key[:1] == "@" {
 			val := invoiceData.Get(key)
@@ -701,10 +697,10 @@ func demo_dian_ubl() {
 		}
 	}
 
-	// 2. Extensión con Firma (Debe ir primero dentro de Invoice)
+	// 2. Extension with the signature (must come first inside Invoice)
 	finalInvoiceContent.Set("ext:UBLExtensions", ublExtensions)
 
-	// 3. Resto del cuerpo
+	// 3. Rest of the body
 	for _, key := range invoiceData.Keys() {
 		if len(key) > 0 && key[:1] != "@" {
 			val := invoiceData.Get(key)
@@ -713,7 +709,7 @@ func demo_dian_ubl() {
 	}
 
 	// -------------------------------------------------------------
-	// ⚡️ PASO CLAVE: ENVOLVER EN "Invoice"
+	// ⚡️ KEY STEP: WRAP IN "Invoice"
 	// -------------------------------------------------------------
 	root := xml.NewMap()
 	root.Set("Invoice", finalInvoiceContent)
@@ -724,18 +720,18 @@ func demo_dian_ubl() {
 		return
 	}
 
-	fmt.Println("\n✅ XML FIRMADO EXITOSAMENTE (DIAN READY):")
+	fmt.Println("\n✅ XML SIGNED SUCCESSFULLY (DIAN READY):")
 
 	err = os.WriteFile("factura_dian_cufe.xml", []byte(finalXML), 0644)
 	if err != nil {
-		fmt.Printf("❌ Error guardando archivo: %v\n", err)
+		fmt.Printf("❌ Error saving file: %v\n", err)
 		return
 	}
 
-	fmt.Println("✅ Factura Final Generada: factura_dian_cufe.xml")
+	fmt.Println("✅ Final invoice generated: factura_dian_cufe.xml")
 }
 
-// Helper CUFE
+// CUFE helper
 func CalculateCUFE(NumFac, FecFac, HorFac, ValFac, CodImp1, ValImp1, CodImp2, ValImp2, ValTot, NitEmi, NumAdq, ClaveTec, TipoAmb string) string {
 	raw := fmt.Sprintf("%s%s%s%s%s%s%s%s%s%s%s%s%s",
 		NumFac, FecFac, HorFac, ValFac,
