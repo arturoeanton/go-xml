@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	// Router simple de comandos
+	// Simple command router
 	if len(os.Args) < 2 {
 		printHelp()
 		os.Exit(0)
@@ -39,7 +39,7 @@ func main() {
 		}
 		RunDemos(target)
 	default:
-		fmt.Printf("Error: Comando desconocido '%s'\n", command)
+		fmt.Printf("Error: Unknown command '%s'\n", command)
 		printHelp()
 		os.Exit(1)
 	}
@@ -47,20 +47,20 @@ func main() {
 
 func printHelp() {
 	fmt.Println("r2/xml - The Enterprise XML Swiss Army Knife")
-	fmt.Println("Uso: r2xml [comando] [argumentos]")
-	fmt.Println("\nComandos:")
-	fmt.Println("  fmt   <file>          : Formatear/Embellecer XML (Pretty Print)")
-	fmt.Println("  json  <file>          : Convertir XML a JSON")
-	fmt.Println("  csv   <file> --path=X : Convertir lista XML a CSV (Flatten)")
-	fmt.Println("  query <file> <xpath>  : Ejecutar consulta XPath")
-	fmt.Println("  soap  <config.json>   : Ejecutar request SOAP desde definición JSON")
-	fmt.Println("  call  [flags]         : Ejecutar request SOAP rápido con parámetros")
+	fmt.Println("Usage: r2xml [command] [arguments]")
+	fmt.Println("\nCommands:")
+	fmt.Println("  fmt   <file>          : Format/Beautify XML (Pretty Print)")
+	fmt.Println("  json  <file>          : Convert XML to JSON")
+	fmt.Println("  csv   <file> --path=X : Convert XML list to CSV (Flatten)")
+	fmt.Println("  query <file> <xpath>  : Run an XPath query")
+	fmt.Println("  soap  <config.json>   : Execute a SOAP request from a JSON definition")
+	fmt.Println("  call  [flags]         : Execute a quick SOAP request with parameters")
 	fmt.Println("        --url=... --action=... --ns=... --auth=wsse --user=... --pass=...")
 	fmt.Println("        --data=\"Key=Val\" --data=\"Nested/Key=Val\"")
-	fmt.Println("        --wsdl=service.wsdl : usa el WSDL para validar --action y setear url/ns/soapAction")
-	fmt.Println("  wsdl  <file.wsdl>     : Listar operaciones SOAP descubiertas en un WSDL")
-	fmt.Println("  demo                  : Ejecutar demos internas")
-	fmt.Println("  demo [nombre]         : Ejecutar demo específica")
+	fmt.Println("        --wsdl=service.wsdl : use the WSDL to validate --action and set url/ns/soapAction")
+	fmt.Println("  wsdl  <file.wsdl>     : List SOAP operations discovered in a WSDL")
+	fmt.Println("  demo                  : Run built-in demos")
+	fmt.Println("  demo [name]           : Run a specific demo")
 
 	fmt.Println("\nExample call")
 	fmt.Println("  r2xml call --url=http://www.dneonline.com/calculator.asmx --action=Add --ns=http://tempuri.org/ --data=\"intA=3\" --data=\"intB=4\"")
