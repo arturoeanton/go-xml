@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="go-xml logo" width="300">
+</p>
+
 # go-xml: The Enterprise Deterministic XML Parser (v2.0)
 > **v2.0 Update**: Now powered by `OrderedMap` for 100% determinism and order preservation.
 
