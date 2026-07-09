@@ -24,7 +24,7 @@ type Stream[T any] struct {
 // tagName: The local name of the XML element to iterate over (e.g., "Item", "Entry").
 // opts: Variadic options (e.g., EnableLegacyCharsets)
 func NewStream[T any](r io.Reader, tagName string, opts ...Option) *Stream[T] {
-	// 1. Procesar configuración
+	// 1. Process configuration
 	cfg := defaultConfig()
 	for _, opt := range opts {
 		opt(cfg)
@@ -32,9 +32,9 @@ func NewStream[T any](r io.Reader, tagName string, opts ...Option) *Stream[T] {
 
 	decoder := xml.NewDecoder(r)
 
-	// 2. Inyectar el CharsetReader si la opción está activa
+	// 2. Inject the CharsetReader if the option is enabled
 	if cfg.useCharsetReader {
-		// Aquí usamos la función charsetReader definida en charset.go
+		// Here we use the charsetReader function defined in charset.go
 		decoder.CharsetReader = charsetReader
 	}
 

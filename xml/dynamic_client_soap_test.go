@@ -20,7 +20,7 @@ func TestSoapClient_Success(t *testing.T) {
 		if r.Header.Get("Content-Type") != "text/xml; charset=utf-8" {
 			t.Errorf("Expected Content-Type text/xml, got %s", r.Header.Get("Content-Type"))
 		}
-		// Validar que el SOAPAction tenga comillas (Fix reciente)
+		// Validate that the SOAPAction is quoted (recent fix)
 		soapAction := r.Header.Get("SOAPAction")
 		if !strings.Contains(soapAction, "\"") {
 			t.Errorf("Expected quoted SOAPAction header, got %s", soapAction)
@@ -34,12 +34,12 @@ func TestSoapClient_Success(t *testing.T) {
 			t.Error("Expected SOAP Envelope in request body")
 		}
 
-		// --- CORRECCIÓN AQUÍ ---
-		// Ya no usamos el prefijo "m:", usamos el tag limpio con el namespace por defecto.
+		// --- FIX HERE ---
+		// We no longer use the "m:" prefix; we use the clean tag with the default namespace.
 		if !strings.Contains(body, "<GetUser") {
 			t.Error("Expected <GetUser> tag in request body")
 		}
-		// Validamos que se inyecte el namespace correctamente en el nodo de acción
+		// Validate that the namespace is injected correctly into the action node
 		if !strings.Contains(body, `xmlns="http://example.org/myservice"`) {
 			t.Errorf("Expected namespace in action node. Got body: %s", body)
 		}
@@ -76,11 +76,11 @@ func TestSoapClient_Success(t *testing.T) {
 	}
 
 	// Verify Response Parsing
-	// Nota: Dependiendo de cómo tu parser maneje namespaces en la respuesta,
-	// a veces es necesario ajustar la query. Si tienes MapXML estándar, esto debería funcionar:
+	// Note: Depending on how your parser handles namespaces in the response,
+	// the query sometimes needs adjusting. With standard MapXML this should work:
 	name, err := Query(resp, "soap:Envelope/soap:Body/GetUserResponse/User/Name")
 	if err != nil {
-		// Fallback: A veces el parser simplifica keys
+		// Fallback: Sometimes the parser simplifies keys
 		name, err = Query(resp, "Envelope/Body/GetUserResponse/User/Name")
 	}
 

@@ -9,11 +9,11 @@ import (
 // CERTIFICATE UTILITIES (Standard PEM Support)
 // ============================================================================
 
-// LoadCert carga un par de certificados (Pública + Privada) desde archivos PEM (.crt / .key).
-// Este es el formato nativo soportado por Go y la mayoría de servidores Linux/Docker.
+// LoadCert loads a certificate pair (Public + Private) from PEM files (.crt / .key).
+// This is the native format supported by Go and most Linux/Docker servers.
 func LoadCert(certFile, keyFile string) (tls.Certificate, error) {
-	// Usamos la librería estándar.
-	// Esto espera que los archivos estén en formato PEM (texto plano con headers -----BEGIN CERTIFICATE-----)
+	// We use the standard library.
+	// This expects the files to be in PEM format (plain text with -----BEGIN CERTIFICATE----- headers)
 	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("failed to load x509 key pair: %w", err)

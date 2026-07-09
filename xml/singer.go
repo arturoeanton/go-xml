@@ -55,14 +55,15 @@ func NewSigner(certPEM, keyPEM []byte) (*Signer, error) {
 }
 
 // ============================================================================
-// MODO 1: XML-DSig (Estándar Simple)
+// MODE 1: XML-DSig (Simple Standard)
 // ============================================================================
 
 func (s *Signer) CreateSignature(xmlContent []byte) (*OrderedMap, error) {
-	// 1. Digest: el Reference URI="" apunta al documento completo. Como
-	// xmlContent se captura ANTES de insertar la firma, esto ya implementa
-	// el transform enveloped-signature (no hay ds:Signature que remover
-	// todavía); solo falta canonicalizarlo, tal como declara el algoritmo.
+	// 1. Digest: the Reference URI="" points to the whole document. Since
+	// xmlContent is captured BEFORE inserting the signature, this already
+	// implements the enveloped-signature transform (there is no ds:Signature
+	// to remove yet); all that remains is to canonicalize it, exactly as the
+	// algorithm declares.
 	canonicalDoc, err := CanonicalizeXML(xmlContent)
 	if err != nil {
 		return nil, fmt.Errorf("error canonicalizing document: %w", err)
@@ -97,9 +98,10 @@ func (s *Signer) CreateSignature(xmlContent []byte) (*OrderedMap, error) {
 
 	signedInfo.Set("ds:Reference", ref)
 
-	// 3. Firmar: SignedInfo se canonicaliza como raíz de su propia
-	// canonicalización (ver Canonicalize), consistente con lo que declara
-	// ds:CanonicalizationMethod y con lo que Verify() recalculará luego.
+	// 3. Sign: SignedInfo is canonicalized as the root of its own
+	// canonicalization (see Canonicalize), consistent with what
+	// ds:CanonicalizationMethod declares and with what Verify() will
+	// recompute later.
 	wrapper := NewMap()
 	signedInfo.Set("@xmlns:ds", dsigNS)
 	wrapper.Set("ds:SignedInfo", signedInfo)
@@ -116,7 +118,7 @@ func (s *Signer) CreateSignature(xmlContent []byte) (*OrderedMap, error) {
 		return nil, err
 	}
 
-	// 4. Armar
+	// 4. Assemble
 	dsSig := NewMap()
 	dsSig.Set("@xmlns:ds", dsigNS)
 	dsSig.Set("ds:SignedInfo", signedInfo)
@@ -132,7 +134,7 @@ func (s *Signer) CreateSignature(xmlContent []byte) (*OrderedMap, error) {
 }
 
 // ============================================================================
-// MODO 2: XAdES-BES (DIAN / Factura Electrónica Avanzada)
+// MODE 2: XAdES-BES (DIAN / Advanced Electronic Invoice)
 // ============================================================================
 
 func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
@@ -141,16 +143,16 @@ func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
 	sigPropsID := "SignedProperties-" + uniqueID
 	xadesNS := "http://uri.etsi.org/01903/v1.3.2#"
 
-	// --- 1. Preparar Propiedades Firmadas (XAdES) ---
-	// Este hash es binario puro del certificado, no requiere C14N
+	// --- 1. Prepare Signed Properties (XAdES) ---
+	// This hash is the raw binary of the certificate, it does not require C14N
 	certHash := sha256.Sum256(s.Cert.Raw)
 
 	signedProperties := NewMap()
 	signedProperties.Set("@Id", sigPropsID)
-	// Los namespaces van directo en el nodo que será la raíz marshaleada
-	// (no en un wrapper externo): Marshal/Encode descarta en silencio
-	// cualquier atributo puesto junto a la única clave raíz de nivel
-	// superior, así que declararlos aquí es obligatorio, no cosmético.
+	// The namespaces go directly on the node that will be the marshaled root
+	// (not on an outer wrapper): Marshal/Encode silently drops any attribute
+	// placed alongside the single top-level root key, so declaring them here
+	// is mandatory, not cosmetic.
 	signedProperties.Set("@xmlns:xades", xadesNS)
 	signedProperties.Set("@xmlns:ds", dsigNS)
 
@@ -175,9 +177,9 @@ func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
 	sigSigProps.Set("xades:SigningCertificate", signingCert)
 	signedProperties.Set("xades:SignedSignatureProperties", sigSigProps)
 
-	// --- 2. Hashear Documento y Propiedades ---
-	// xmlContent se captura ANTES de insertar la firma: canonicalizarlo tal
-	// cual ya implementa el transform enveloped-signature.
+	// --- 2. Hash Document and Properties ---
+	// xmlContent is captured BEFORE inserting the signature: canonicalizing
+	// it as-is already implements the enveloped-signature transform.
 	canonicalDoc, err := CanonicalizeXML(xmlContent)
 	if err != nil {
 		return nil, fmt.Errorf("error canonicalizing document: %w", err)
@@ -194,12 +196,12 @@ func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
 
 	propsHash := sha256.Sum256(xpBytes)
 
-	// --- 3. Construir SignedInfo (Con doble referencia) ---
+	// --- 3. Build SignedInfo (With double reference) ---
 	signedInfo := NewMap()
 	signedInfo.Set("ds:CanonicalizationMethod/@Algorithm", ExclusiveC14NAlgorithm)
 	signedInfo.Set("ds:SignatureMethod/@Algorithm", "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256")
 
-	// Ref 1: Documento (Factura)
+	// Ref 1: Document (Invoice)
 	refDoc := NewMap()
 	refDoc.Set("@URI", "")
 	tr := NewMap()
@@ -210,7 +212,7 @@ func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
 	refDoc.Set("ds:DigestMethod/@Algorithm", "http://www.w3.org/2001/04/xmlenc#sha256")
 	refDoc.Set("ds:DigestValue", base64.StdEncoding.EncodeToString(docHash[:]))
 
-	// Ref 2: Propiedades (SignedProperties)
+	// Ref 2: Properties (SignedProperties)
 	refProps := NewMap()
 	refProps.Set("@URI", "#"+sigPropsID)
 	refProps.Set("@Type", "http://uri.etsi.org/01903#SignedProperties")
@@ -219,9 +221,9 @@ func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
 
 	signedInfo.Set("ds:Reference", []*OrderedMap{refDoc, refProps})
 
-	// --- 4. Firmar ---
+	// --- 4. Sign ---
 	wrapper := NewMap()
-	// El namespace ds es vital en el wrapper para que C14N lo propague
+	// The ds namespace is vital on the wrapper so that C14N propagates it
 	signedInfo.Set("@xmlns:ds", dsigNS)
 	wrapper.Set("ds:SignedInfo", signedInfo)
 
@@ -237,7 +239,7 @@ func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
 		return nil, err
 	}
 
-	// --- 5. Armar Final ---
+	// --- 5. Final Assembly ---
 	finalSig := NewMap()
 	finalSig.Set("@xmlns:ds", dsigNS)
 	finalSig.Set("@Id", signatureID)
@@ -264,7 +266,7 @@ func (s *Signer) CreateXadesSignature(xmlContent []byte) (*OrderedMap, error) {
 }
 
 // ============================================================================
-// VERIFICACIÓN
+// VERIFICATION
 // ============================================================================
 
 // Verify recomputes and checks an enveloped XML-DSig signature (as produced
@@ -287,8 +289,8 @@ func (s *Signer) Verify(signedXML []byte) error {
 		return fmt.Errorf("verify: ds:SignedInfo not found")
 	}
 
-	// 1. Verificar cada Reference (documento completo y, si existen,
-	// fragmentos referenciados por Id, ej. xades:SignedProperties).
+	// 1. Verify each Reference (the whole document and, if present,
+	// fragments referenced by Id, e.g. xades:SignedProperties).
 	refs := findChildrenNS(siNode, dsigNS, "Reference")
 	if len(refs) == 0 {
 		return fmt.Errorf("verify: no ds:Reference elements found")
@@ -306,8 +308,9 @@ func (s *Signer) Verify(signedXML []byte) error {
 
 		var gotDigest [32]byte
 		if uri == "" {
-			// Documento completo con el transform enveloped-signature: se
-			// quita ds:Signature del árbol y se canonicaliza el resto.
+			// Whole document with the enveloped-signature transform:
+			// ds:Signature is removed from the tree and the rest is
+			// canonicalized.
 			stripped := cloneWithoutFirst(root, dsigNS, "Signature")
 			canon, err := renderCanonicalized(stripped)
 			if err != nil {
@@ -334,8 +337,8 @@ func (s *Signer) Verify(signedXML []byte) error {
 		}
 	}
 
-	// 2. Verificar la firma RSA sobre SignedInfo, canonicalizado de forma
-	// aislada (tal como se hizo al firmar).
+	// 2. Verify the RSA signature over SignedInfo, canonicalized in
+	// isolation (just as was done when signing).
 	siCanon, err := renderCanonicalized(siNode)
 	if err != nil {
 		return fmt.Errorf("verify: canonicalizing SignedInfo: %w", err)

@@ -10,14 +10,14 @@ import (
 	"strings"
 )
 
-// OrderedMap es una estructura de datos híbrida que mantiene el orden de inserción
-// y ofrece utilidades avanzadas para manipulación de datos jerárquicos.
+// OrderedMap is a hybrid data structure that maintains insertion order
+// and offers advanced utilities for manipulating hierarchical data.
 type OrderedMap struct {
-	keys   []string       // Mantiene el orden
-	values map[string]any // Mantiene la velocidad O(1)
+	keys   []string       // Maintains the order
+	values map[string]any // Maintains O(1) speed
 }
 
-// NewMap crea una nueva instancia de OrderedMap.
+// NewMap creates a new OrderedMap instance.
 func NewMap() *OrderedMap {
 	return &OrderedMap{
 		keys:   make([]string, 0),
@@ -29,9 +29,9 @@ func NewMap() *OrderedMap {
 // 1. Fluent Setters & Core CRUD
 // ---------------------------------------------------------
 
-// Set inserta un valor en una ruta específica (ej: "Body/Auth/Token").
-// Crea automáticamente los mapas anidados si no existen.
-// Retorna el mismo mapa para encadenamiento (Fluent API).
+// Set inserts a value at a specific path (e.g. "Body/Auth/Token").
+// It automatically creates the nested maps if they do not exist.
+// Returns the same map for chaining (Fluent API).
 func (om *OrderedMap) Set(path string, value any) *OrderedMap {
 	parts := strings.Split(path, "/")
 	lastIdx := len(parts) - 1
@@ -39,18 +39,18 @@ func (om *OrderedMap) Set(path string, value any) *OrderedMap {
 
 	for i := 0; i < lastIdx; i++ {
 		key := parts[i]
-		// Si no existe o no es un OrderedMap, creamos uno nuevo
+		// If it does not exist or is not an OrderedMap, create a new one
 		if !current.Has(key) {
 			newMap := NewMap()
 			current.Put(key, newMap)
 			current = newMap
 		} else {
-			// Si existe, verificamos que sea un OrderedMap
+			// If it exists, verify that it is an OrderedMap
 			val := current.Get(key)
 			if nextMap, ok := val.(*OrderedMap); ok {
 				current = nextMap
 			} else {
-				// Conflicto: existe pero no es un mapa. Sobrescribimos.
+				// Conflict: it exists but is not a map. Overwrite it.
 				newMap := NewMap()
 				current.Put(key, newMap)
 				current = newMap
@@ -62,7 +62,7 @@ func (om *OrderedMap) Set(path string, value any) *OrderedMap {
 	return om
 }
 
-// Put inserta un par clave-valor directamente en este nivel.
+// Put inserts a key-value pair directly at this level.
 func (om *OrderedMap) Put(key string, value any) {
 	if _, exists := om.values[key]; !exists {
 		om.keys = append(om.keys, key)
@@ -70,18 +70,18 @@ func (om *OrderedMap) Put(key string, value any) {
 	om.values[key] = value
 }
 
-// Get recupera un valor directo de este nivel.
+// Get retrieves a direct value from this level.
 func (om *OrderedMap) Get(key string) any {
 	return om.values[key]
 }
 
-// Has verifica si una clave existe en este nivel.
+// Has checks whether a key exists at this level.
 func (om *OrderedMap) Has(key string) bool {
 	_, exists := om.values[key]
 	return exists
 }
 
-// Remove elimina una clave y mantiene la consistencia del orden.
+// Remove deletes a key while keeping the order consistent.
 func (om *OrderedMap) Remove(key string) {
 	if _, exists := om.values[key]; !exists {
 		return
@@ -95,16 +95,16 @@ func (om *OrderedMap) Remove(key string) {
 	}
 }
 
-// Len retorna la cantidad de claves en este mapa.
+// Len returns the number of keys in this map.
 func (om *OrderedMap) Len() int {
 	return len(om.keys)
 }
 
 // ---------------------------------------------------------
-// 2. Navegación y Lectura Segura (Zero-Panic)
+// 2. Navigation and Safe Reading (Zero-Panic)
 // ---------------------------------------------------------
 
-// GetPath navega por la estructura usando "Key/SubKey".
+// GetPath navigates the structure using "Key/SubKey".
 func (om *OrderedMap) GetPath(path string) any {
 	parts := strings.Split(path, "/")
 	var current any = om
@@ -128,19 +128,19 @@ func (om *OrderedMap) GetPath(path string) any {
 	return current
 }
 
-// GetNode retorna un *OrderedMap en la ruta especificada.
-// Retorna nil si no existe o no es un OrderedMap.
+// GetNode returns a *OrderedMap at the specified path.
+// Returns nil if it does not exist or is not an OrderedMap.
 func (om *OrderedMap) GetNode(path string) *OrderedMap {
 	val := om.GetPath(path)
 	if node, ok := val.(*OrderedMap); ok {
 		return node
 	}
-	return nil // Retorna nil, no panic
+	return nil // Returns nil, no panic
 }
 
-// List retorna un slice de *OrderedMap.
-// Es "smart": si el nodo es único, lo envuelve en un slice.
-// Si es un slice de any, filtra los que sean OrderedMap.
+// List returns a slice of *OrderedMap.
+// It is "smart": if the node is a single one, it wraps it in a slice.
+// If it is a slice of any, it filters the ones that are OrderedMap.
 func (om *OrderedMap) List(path string) []*OrderedMap {
 	val := om.GetPath(path)
 	if val == nil {
@@ -164,7 +164,7 @@ func (om *OrderedMap) List(path string) []*OrderedMap {
 	return result
 }
 
-// String obtiene un string de la ruta, retornando "" si falla.
+// String gets a string from the path, returning "" on failure.
 func (om *OrderedMap) String(path string) string {
 	val := om.GetPath(path)
 	if val == nil {
@@ -180,7 +180,7 @@ func (om *OrderedMap) String(path string) string {
 	}
 }
 
-// Int obtiene un int de la ruta, retornando 0 si falla.
+// Int gets an int from the path, returning 0 on failure.
 func (om *OrderedMap) Int(path string) int {
 	val := om.GetPath(path)
 	if val == nil {
@@ -199,7 +199,7 @@ func (om *OrderedMap) Int(path string) int {
 	}
 }
 
-// Float obtiene un float64 de la ruta, retornando 0.0 si falla.
+// Float gets a float64 from the path, returning 0.0 on failure.
 func (om *OrderedMap) Float(path string) float64 {
 	val := om.GetPath(path)
 	if val == nil {
@@ -218,7 +218,7 @@ func (om *OrderedMap) Float(path string) float64 {
 	}
 }
 
-// Bool obtiene un bool de la ruta, retornando false si falla.
+// Bool gets a bool from the path, returning false on failure.
 func (om *OrderedMap) Bool(path string) bool {
 	val := om.GetPath(path)
 	if val == nil {
@@ -241,19 +241,19 @@ func (om *OrderedMap) Bool(path string) bool {
 // 3. Utils & Iteration
 // ---------------------------------------------------------
 
-// Keys retorna las claves en el orden actual.
+// Keys returns the keys in the current order.
 func (om *OrderedMap) Keys() []string {
 	result := make([]string, len(om.keys))
 	copy(result, om.keys)
 	return result
 }
 
-// Sort ordena las claves alfabéticamente.
+// Sort sorts the keys alphabetically.
 func (om *OrderedMap) Sort() {
 	sort.Strings(om.keys)
 }
 
-// ForEach itera sobre el mapa en orden.
+// ForEach iterates over the map in order.
 func (om *OrderedMap) ForEach(fn func(key string, value any) bool) {
 	for _, k := range om.keys {
 		if !fn(k, om.values[k]) {
@@ -262,7 +262,7 @@ func (om *OrderedMap) ForEach(fn func(key string, value any) bool) {
 	}
 }
 
-// ToMap convierte recursivamente a map[string]any (pierde orden).
+// ToMap converts recursively to map[string]any (loses order).
 func (om *OrderedMap) ToMap() map[string]any {
 	result := make(map[string]any, len(om.keys))
 	for _, k := range om.keys {
@@ -272,7 +272,7 @@ func (om *OrderedMap) ToMap() map[string]any {
 	return result
 }
 
-// Helper recursivo para ToMap
+// Recursive helper for ToMap
 func toNative(val any) any {
 	switch v := val.(type) {
 	case *OrderedMap:
@@ -294,7 +294,7 @@ func toNative(val any) any {
 	}
 }
 
-// ToJSON retorna la representación JSON del mapa preservando orden (indirectamente vía MarshalJSON).
+// ToJSON returns the JSON representation of the map preserving order (indirectly via MarshalJSON).
 func (om *OrderedMap) ToJSON() (string, error) {
 	b, err := om.MarshalJSON()
 	if err != nil {
@@ -324,58 +324,58 @@ func (om *OrderedMap) MarshalJSON() ([]byte, error) {
 }
 
 // ---------------------------------------------------------
-// 4. Interoperabilidad XML (La pieza faltante)
+// 4. XML Interoperability (The missing piece)
 // ---------------------------------------------------------
 
-// MarshalXML implementa la interfaz xml.Marshaler.
-// Esto permite que OrderedMap funcione nativamente con encoding/xml.
+// MarshalXML implements the xml.Marshaler interface.
+// This allows OrderedMap to work natively with encoding/xml.
 func (om *OrderedMap) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	var childrenKeys []string
 
-	// 1. Separar Atributos (@) de Hijos
-	// Es vital inyectar los atributos en el 'start' token ANTES de emitirlo.
+	// 1. Separate Attributes (@) from Children
+	// It is vital to inject the attributes into the 'start' token BEFORE emitting it.
 	finalStart := start.Copy()
 
 	for _, k := range om.keys {
 		val := om.values[k]
 
 		if strings.HasPrefix(k, "@") {
-			// Es un atributo
+			// It is an attribute
 			attrName := strings.TrimPrefix(k, "@")
 			finalStart.Attr = append(finalStart.Attr, xml.Attr{
 				Name:  xml.Name{Local: attrName},
 				Value: fmt.Sprintf("%v", val),
 			})
 		} else {
-			// Es contenido
+			// It is content
 			childrenKeys = append(childrenKeys, k)
 		}
 	}
 
-	// 2. Emitir Start Element (con atributos)
+	// 2. Emit Start Element (with attributes)
 	if err := e.EncodeToken(finalStart); err != nil {
 		return err
 	}
 
-	// 3. Emitir Hijos (En Orden)
+	// 3. Emit Children (In Order)
 	for _, k := range childrenKeys {
 		val := om.values[k]
 
 		if k == "#text" {
-			// Texto directo
+			// Direct text
 			if err := e.EncodeToken(xml.CharData([]byte(fmt.Sprintf("%v", val)))); err != nil {
 				return err
 			}
 			continue
 		}
 
-		// Hijo normal (Recursión automática manejada por Go)
+		// Normal child (Automatic recursion handled by Go)
 		if err := e.EncodeElement(val, xml.StartElement{Name: xml.Name{Local: k}}); err != nil {
 			return err
 		}
 	}
 
-	// 4. Cerrar Elemento
+	// 4. Close Element
 	return e.EncodeToken(finalStart.End())
 }
 
@@ -383,8 +383,8 @@ func (om *OrderedMap) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 // 5. Debug Helper
 // ---------------------------------------------------------
 
-// Dump retorna una representación string bonita (JSON Indented) de la estructura.
-// Útil para logs: fmt.Println(resp.Dump())
+// Dump returns a pretty string representation (JSON Indented) of the structure.
+// Useful for logs: fmt.Println(resp.Dump())
 func (om *OrderedMap) Dump() string {
 	b, err := om.MarshalJSON()
 	if err != nil {
@@ -392,7 +392,7 @@ func (om *OrderedMap) Dump() string {
 	}
 	var out bytes.Buffer
 	if err := json.Indent(&out, b, "", "  "); err != nil {
-		return string(b) // Fallback a JSON minificado si falla la indentación
+		return string(b) // Fallback to minified JSON if indentation fails
 	}
 	return out.String()
 }
@@ -401,7 +401,7 @@ func (om *OrderedMap) Dump() string {
 // 6. Mutation (Rename / Move)
 // ---------------------------------------------------------
 
-// Rename cambia el nombre de una clave manteniendo su posición y valor.
+// Rename changes the name of a key while keeping its position and value.
 func (om *OrderedMap) Rename(oldKey, newKey string) error {
 	if _, exists := om.values[newKey]; exists {
 		return fmt.Errorf("destination key '%s' already exists", newKey)
@@ -425,14 +425,14 @@ func (om *OrderedMap) Rename(oldKey, newKey string) error {
 	return nil
 }
 
-// Move mueve un valor de una ruta a otra (Cut & Paste).
+// Move moves a value from one path to another (Cut & Paste).
 func (om *OrderedMap) Move(srcPath, dstPath string) error {
 	val := om.GetPath(srcPath)
 	if val == nil {
 		return fmt.Errorf("source path '%s' not found", srcPath)
 	}
 
-	// 1. Paste (Set crea deep paths si es necesario)
+	// 1. Paste (Set creates deep paths if necessary)
 	om.Set(dstPath, val)
 
 	// 2. Cut (Remove Source)

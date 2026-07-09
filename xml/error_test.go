@@ -6,7 +6,7 @@ import (
 )
 
 func TestXMLError(t *testing.T) {
-	// XML malformado en la línea 3
+	// Malformed XML at line 3
 	malformed := `
 <root>
 	<valid>ok</valid>
@@ -20,18 +20,18 @@ func TestXMLError(t *testing.T) {
 		t.Fatal("Expected error, got nil")
 	}
 
-	// Verificar si es nuestro tipo
+	// Check whether it is our type
 	syntaxErr, ok := err.(*SyntaxError)
 	if !ok {
-		// INTENT: El error podría venir envuelto o ser directo.
-		// Al menos verifiquemos que el string contiene "line"
+		// INTENT: The error could come wrapped or be direct.
+		// At least verify that the string contains "line"
 		if !strings.Contains(err.Error(), "line") {
 			t.Errorf("Error expected to contain 'line', got: %v", err)
 		}
 		return
 	}
 
-	// Debería ser línea 4 o 5 dependiendo de cómo el parser detecta el EOF inesperado o tag no cerrado
+	// It should be line 4 or 5 depending on how the parser detects the unexpected EOF or unclosed tag
 	if syntaxErr.Line <= 0 {
 		t.Errorf("Expected Line > 0, got %d", syntaxErr.Line)
 	}

@@ -9,7 +9,7 @@ func TestValidate_Rules(t *testing.T) {
 	data := map[string]any{
 		"user": map[string]any{
 			"name":  "Alice",
-			"age":   "25", // String que debe pasar como número
+			"age":   "25", // String that must pass as a number
 			"role":  "admin",
 			"email": "alice@example.com",
 			"tags":  []any{"dev", "ops"},
@@ -42,7 +42,7 @@ func TestValidate_Rules(t *testing.T) {
 		{
 			name: "Fail Min Value",
 			rules: []Rule{
-				// CORRECCIÓN: Agregado Type: "int" para activar la lógica numérica
+				// FIX: Added Type: "int" to trigger the numeric logic
 				{Path: "user/age", Min: 30, Type: "int"},
 			},
 			wantError: true,
@@ -50,7 +50,7 @@ func TestValidate_Rules(t *testing.T) {
 		{
 			name: "Fail Enum",
 			rules: []Rule{
-				// CORRECCIÓN: Agregado Type: "string" para activar la lógica de Enum
+				// FIX: Added Type: "string" to trigger the Enum logic
 				{Path: "user/role", Enum: []string{"guest", "support"}, Type: "string"},
 			},
 			wantError: true,
@@ -58,7 +58,7 @@ func TestValidate_Rules(t *testing.T) {
 		{
 			name: "Fail Regex",
 			rules: []Rule{
-				// CORRECCIÓN: Agregado Type: "string" para activar la lógica de Regex
+				// FIX: Added Type: "string" to trigger the Regex logic
 				{Path: "user/name", Regex: `^[0-9]+$`, Type: "string"},
 			},
 			wantError: true,

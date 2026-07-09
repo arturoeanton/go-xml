@@ -310,7 +310,7 @@ func Query(data any, path string) (any, error) {
 	return res[0], nil
 }
 
-// Get realiza una Query y retorna el valor tipado T.
+// Get performs a Query and returns the typed value T.
 func Get[T any](data any, path string) (T, error) {
 	var zero T
 	val, err := Query(data, path)

@@ -13,78 +13,78 @@ import (
 // EXPORT UTILITIES
 // ============================================================================
 
-// ToJSON es un wrapper polimórfico inteligente.
-// Acepta:
-// 1. *OrderedMap: Preserva orden.
-// 2. io.Reader: Lee XML stream y convierte a JSON.
-// 3. any: Fallback a json.Marshal estándar.
+// ToJSON is a smart polymorphic wrapper.
+// It accepts:
+// 1. *OrderedMap: Preserves order.
+// 2. io.Reader: Reads an XML stream and converts it to JSON.
+// 3. any: Fallback to standard json.Marshal.
 func ToJSON(data any) (string, error) {
-	// Caso 1: OrderedMap (Ya en memoria)
+	// Case 1: OrderedMap (Already in memory)
 	if om, ok := data.(*OrderedMap); ok {
 		return om.ToJSON()
 	}
 
-	// Caso 2: Stream (File / Stdin / HTTP Body)
+	// Case 2: Stream (File / Stdin / HTTP Body)
 	if r, ok := data.(io.Reader); ok {
 		b, err := ReaderToJSON(r)
 		return string(b), err
 	}
 
-	// Caso 3: Fallback (Map nativo, Struct, etc.)
+	// Case 3: Fallback (Native map, Struct, etc.)
 	b, err := json.Marshal(data)
 	return string(b), err
 }
 
-// ReaderToJSON lee XML desde un Reader y devuelve los bytes JSON.
-// Esta función es usada internamente por ToJSON.
+// ReaderToJSON reads XML from a Reader and returns the JSON bytes.
+// This function is used internally by ToJSON.
 func ReaderToJSON(r io.Reader) ([]byte, error) {
-	// 1. Parsear XML a OrderedMap
+	// 1. Parse XML into an OrderedMap
 	m, err := MapXML(r)
 	if err != nil {
 		return nil, fmt.Errorf("parse error: %w", err)
 	}
 
-	// 2. Convertir a JSON (Usando el método MarshalJSON de OrderedMap)
+	// 2. Convert to JSON (Using OrderedMap's MarshalJSON method)
 	return m.MarshalJSON()
 }
 
-// ToCSV escribe una lista de nodos en formato CSV.
-// Uso: r2xml csv data.xml --path="orders/order"
+// ToCSV writes a list of nodes in CSV format.
+// Usage: r2xml csv data.xml --path="orders/order"
 func ToCSV(w io.Writer, nodes []*OrderedMap) error {
 	if len(nodes) == 0 {
 		return nil
 	}
 
-	// 1. Descubrir Headers (Unificar claves de todos los nodos para ser robusto)
+	// 1. Discover Headers (Unify keys from all nodes to be robust)
 	headerMap := make(map[string]bool)
 	var headers []string
 
 	for _, node := range nodes {
 		for _, k := range node.Keys() {
-			// Ignoramos atributos (@), texto (#text) y cdata (#cdata) para CSV limpio
+			// Ignore attributes (@), text (#text) and cdata (#cdata) for clean CSV
 			if !headerMap[k] && !strings.HasPrefix(k, "@") && !strings.HasPrefix(k, "#") {
 				headerMap[k] = true
 				headers = append(headers, k)
 			}
 		}
 	}
-	sort.Strings(headers) // Orden determinista A-Z
+	sort.Strings(headers) // Deterministic A-Z order
 
-	// 2. Escribir Header
+	// 2. Write Header
 	if _, err := fmt.Fprintln(w, strings.Join(headers, ",")); err != nil {
 		return err
 	}
 
-	// 3. Escribir Filas
+	// 3. Write Rows
 	for _, node := range nodes {
 		var row []string
 		for _, h := range headers {
 			val := node.String(h)
 
-			// Escapar comillas dobles para CSV estándar (RFC 4180)
+			// Escape double quotes for standard CSV (RFC 4180)
 			val = strings.ReplaceAll(val, "\"", "\"\"")
 
-			// Si contiene comas, saltos de línea o comillas, envolver en comillas
+			// If it contains commas, newlines or quotes, wrap in quotes
 			if strings.ContainsAny(val, ",\n\"") {
 				val = fmt.Sprintf("\"%s\"", val)
 			}
@@ -142,7 +142,7 @@ func ToCSVWithOptions(w io.Writer, nodes []*OrderedMap, opts ...CSVOption) error
 		return nil
 	}
 
-	// 1. Descubrir Headers
+	// 1. Discover Headers
 	headerMap := make(map[string]bool)
 	var headers []string
 	addHeader := func(h string) {

@@ -9,7 +9,7 @@ import (
 // ============================================================================
 // VALIDATION ENGINE
 // ============================================================================
-// (Mantener el código de Validate igual que tenías, está correcto)
+// (Keep the Validate code the same as you had it, it is correct)
 func Validate(data any, rules []Rule) []string {
 	var errs []string
 	for _, r := range rules {

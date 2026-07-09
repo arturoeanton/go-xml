@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Tipos de Autenticación
+// Authentication types
 const (
 	AuthNone       = ""
 	AuthBasic      = "Basic"
@@ -17,12 +17,12 @@ const (
 	AuthWSSecurity = "WSSecurity"
 )
 
-// SoapVersion selecciona el envelope/Content-Type usado por Call.
+// SoapVersion selects the envelope/Content-Type used by Call.
 type SoapVersion int
 
 const (
-	Soap11 SoapVersion = iota // http://schemas.xmlsoap.org/soap/envelope/, text/xml + header SOAPAction
-	Soap12                    // http://www.w3.org/2003/05/soap-envelope, application/soap+xml con action= en Content-Type
+	Soap11 SoapVersion = iota // http://schemas.xmlsoap.org/soap/envelope/, text/xml + SOAPAction header
+	Soap12                    // http://www.w3.org/2003/05/soap-envelope, application/soap+xml with action= in Content-Type
 )
 
 const (
@@ -30,7 +30,7 @@ const (
 	soap12EnvelopeNS = "http://www.w3.org/2003/05/soap-envelope"
 )
 
-// SoapClient permite llamadas dinámicas a servicios SOAP sin structs.
+// SoapClient allows dynamic calls to SOAP services without structs.
 type SoapClient struct {
 	EndpointURL    string
 	Namespace      string
@@ -50,13 +50,13 @@ type SoapClient struct {
 	Insecure bool // Skip Verify
 
 	// --- Retry ---
-	RetryAttempts int           // 0 o 1 = sin reintentos
-	RetryBackoff  time.Duration // espera fija entre intentos
+	RetryAttempts int           // 0 or 1 = no retries
+	RetryBackoff  time.Duration // fixed wait between attempts
 }
 
-// --- Opciones mTLS ---
+// --- mTLS Options ---
 
-// WithClientCertificate habilita mTLS usando archivos PEM (.crt y .key).
+// WithClientCertificate enables mTLS using PEM files (.crt and .key).
 func WithClientCertificate(certFile, keyFile string) ClientOption {
 	return func(s *SoapClient) {
 		s.CertFile = certFile
@@ -64,13 +64,13 @@ func WithClientCertificate(certFile, keyFile string) ClientOption {
 	}
 }
 
-// WithInsecureSkipVerify salta la validación del certificado del servidor.
-// Útil para desarrollo (Self-signed).
+// WithInsecureSkipVerify skips validation of the server certificate.
+// Useful for development (self-signed).
 func WithInsecureSkipVerify() ClientOption {
 	return func(s *SoapClient) { s.Insecure = true }
 }
 
-// ClientOption para configuración funcional.
+// ClientOption for functional configuration.
 type ClientOption func(*SoapClient)
 
 func WithTimeout(d time.Duration) ClientOption {
@@ -85,16 +85,16 @@ func WithSoapActionBase(base string) ClientOption {
 	return func(s *SoapClient) { s.SoapActionBase = base }
 }
 
-// WithSOAPVersion selecciona SOAP 1.1 (default) o SOAP 1.2.
+// WithSOAPVersion selects SOAP 1.1 (default) or SOAP 1.2.
 func WithSOAPVersion(v SoapVersion) ClientOption {
 	return func(s *SoapClient) { s.Version = v }
 }
 
-// WithRetry reintenta la llamada hasta `attempts` veces (con espera fija
-// `backoff` entre intentos) cuando el error es de transporte (conexión,
-// timeout, DNS). Una respuesta HTTP ya recibida — incluyendo un SOAP Fault
-// entregado con status 500 — nunca se reintenta: reintentar no cambia el
-// resultado de un error de negocio.
+// WithRetry retries the call up to `attempts` times (with a fixed `backoff`
+// wait between attempts) when the error is a transport error (connection,
+// timeout, DNS). An HTTP response that was already received — including a
+// SOAP Fault delivered with status 500 — is never retried: retrying does not
+// change the outcome of a business error.
 func WithRetry(attempts int, backoff time.Duration) ClientOption {
 	return func(s *SoapClient) {
 		s.RetryAttempts = attempts
@@ -127,7 +127,7 @@ func WithWSSecurity(user, pass string) ClientOption {
 	}
 }
 
-// NewSoapClient crea un nuevo cliente.
+// NewSoapClient creates a new client.
 func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient {
 	client := &SoapClient{
 		EndpointURL: endpoint,
@@ -140,16 +140,16 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 		opt(client)
 	}
 
-	// === LÓGICA mTLS ===
+	// === mTLS LOGIC ===
 	tlsConfig := &tls.Config{}
 	hasTlsConfig := false
 
-	// 1. Cargar Certificado Cliente (PEM)
+	// 1. Load Client Certificate (PEM)
 	if client.CertFile != "" && client.KeyFile != "" {
-		// Usamos nuestra función wrapper de cert.go
+		// We use our wrapper function from cert.go
 		cert, err := LoadCert(client.CertFile, client.KeyFile)
 		if err != nil {
-			// Advertencia crítica, pero no panic (para no tumbar apps enteras)
+			// Critical warning, but no panic (so we don't take down entire apps)
 			fmt.Printf("❌ CRITICAL: Failed to load mTLS certificates: %v\n", err)
 		} else {
 			tlsConfig.Certificates = []tls.Certificate{cert}
@@ -163,10 +163,10 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 		hasTlsConfig = true
 	}
 
-	// 3. Aplicar Transporte
+	// 3. Apply Transport
 	if hasTlsConfig {
-		// Clonamos el transporte por defecto para no perder configuraciones de Proxy (si hubiera)
-		// Pero como estamos creando uno nuevo, usamos el Transport básico + TLS
+		// We would clone the default transport to keep Proxy settings (if any),
+		// but since we're creating a new one, we use the basic Transport + TLS
 		client.HttpClient.Transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
 		}
@@ -175,9 +175,9 @@ func NewSoapClient(endpoint, namespace string, opts ...ClientOption) *SoapClient
 	return client
 }
 
-// SoapFault representa un <soap:Fault> tipado (SOAP 1.1 faultcode/
-// faultstring o SOAP 1.2 Code/Reason), en vez de un error genérico —
-// permite usar errors.As para inspeccionar Code/Message/Detail.
+// SoapFault represents a typed <soap:Fault> (SOAP 1.1 faultcode/
+// faultstring or SOAP 1.2 Code/Reason), instead of a generic error —
+// it allows using errors.As to inspect Code/Message/Detail.
 type SoapFault struct {
 	Code    string
 	Message string
@@ -192,10 +192,10 @@ func (f *SoapFault) Error() string {
 	return fmt.Sprintf("SOAP fault [%s]: %s", f.Code, f.Message)
 }
 
-// extractSoapFault busca un soap:Fault en la respuesta parseada, soportando
-// tanto la forma SOAP 1.1 (faultcode/faultstring/faultactor/detail) como la
-// forma SOAP 1.2 (Code/Value, Reason/Text, Detail). Devuelve nil si no hay
-// Fault reconocible.
+// extractSoapFault looks for a soap:Fault in the parsed response, supporting
+// both the SOAP 1.1 form (faultcode/faultstring/faultactor/detail) and the
+// SOAP 1.2 form (Code/Value, Reason/Text, Detail). Returns nil if there is
+// no recognizable Fault.
 func extractSoapFault(respMap *OrderedMap) *SoapFault {
 	fault, _ := Query(respMap, "Envelope/Body/Fault")
 	fMap, ok := fault.(*OrderedMap)
@@ -233,7 +233,7 @@ func extractSoapFault(respMap *OrderedMap) *SoapFault {
 // body) for action/payload and returns its encoded bytes. Shared by Call and
 // CallOperation.
 func (c *SoapClient) buildEnvelope(action string, payload any) ([]byte, error) {
-	// 1. Preparar el Payload
+	// 1. Prepare the Payload
 	actionNode := NewMap()
 	actionNode.Put("@xmlns", c.Namespace)
 
@@ -254,7 +254,7 @@ func (c *SoapClient) buildEnvelope(action string, payload any) ([]byte, error) {
 		}
 	}
 
-	// 2. Construir Envelope Base
+	// 2. Build Base Envelope
 	envelopeNS := soap11EnvelopeNS
 	if c.Version == Soap12 {
 		envelopeNS = soap12EnvelopeNS
@@ -262,7 +262,7 @@ func (c *SoapClient) buildEnvelope(action string, payload any) ([]byte, error) {
 	envelopeMap := NewMap()
 	envelopeMap.Put("@xmlns:soap", envelopeNS)
 
-	// 3. Inyectar WS-Security (Si aplica) - Headers van ANTES del Body
+	// 3. Inject WS-Security (if applicable) - Headers go BEFORE the Body
 	if c.AuthType == AuthWSSecurity {
 		security := NewMap()
 		security.Put("@xmlns:wsse", "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd")
@@ -365,11 +365,11 @@ func (c *SoapClient) doCall(bodyBytes []byte, soapAction string) (*OrderedMap, e
 	return respMap, nil
 }
 
-// Call ejecuta una acción SOAP.
-// payload puede ser *OrderedMap (respeta orden) o map[string]any (ordena alfabéticamente).
-// SOAPAction se reconstruye como "namespace/action" (o SoapActionBase/action) —
-// una convención que no coincide con el soapAction real de muchos servicios.
-// Si tenés el WSDL, usá CallOperation para el valor exacto.
+// Call executes a SOAP action.
+// payload can be *OrderedMap (preserves order) or map[string]any (sorted alphabetically).
+// SOAPAction is reconstructed as "namespace/action" (or SoapActionBase/action) —
+// a convention that does not match the real soapAction of many services.
+// If you have the WSDL, use CallOperation for the exact value.
 func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	bodyBytes, err := c.buildEnvelope(action, payload)
 	if err != nil {
@@ -387,9 +387,9 @@ func (c *SoapClient) Call(action string, payload any) (*OrderedMap, error) {
 	return c.doCall(bodyBytes, soapAction)
 }
 
-// CallOperation ejecuta action usando el soapAction, endpoint y versión SOAP
-// exactos declarados en w (en vez de la convención adivinada de Call).
-// Devuelve error si action no existe en el WSDL.
+// CallOperation executes action using the exact soapAction, endpoint and
+// SOAP version declared in w (instead of Call's guessed convention).
+// Returns an error if action does not exist in the WSDL.
 func (c *SoapClient) CallOperation(w *WSDL, action string, payload any) (*OrderedMap, error) {
 	op, err := w.Operation(action)
 	if err != nil {
@@ -404,8 +404,8 @@ func (c *SoapClient) CallOperation(w *WSDL, action string, payload any) (*Ordere
 	return c.doCall(bodyBytes, op.SOAPAction)
 }
 
-// NewSoapClientFromWSDL construye un SoapClient usando el primer endpoint
-// SOAP declarado en w (ver WSDL.Endpoint) — namespace y versión incluidos.
+// NewSoapClientFromWSDL builds a SoapClient using the first SOAP endpoint
+// declared in w (see WSDL.Endpoint) — namespace and version included.
 func NewSoapClientFromWSDL(w *WSDL, opts ...ClientOption) (*SoapClient, error) {
 	endpoint, err := w.Endpoint()
 	if err != nil {

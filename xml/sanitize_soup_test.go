@@ -47,12 +47,12 @@ func TestSanitizeSoup(t *testing.T) {
 			input:    `<div><span>Hello</span></div>`,
 			expected: `<div><span>Hello</span></div>`,
 		},
-		// === EL CASO CRÍTICO ===
+		// === THE CRITICAL CASE ===
 		{
 			name:  "Escape CDATA Closer (]]>)",
 			input: `<script>var s = "]]>";</script>`,
-			// Explicación: "]]>" se rompe en "]]]]><![CDATA[>"
-			// Visualmente: <![CDATA[ var s = " ]] ]]><![CDATA[ > "; ]]>
+			// Explanation: "]]>" is broken into "]]]]><![CDATA[>"
+			// Visually: <![CDATA[ var s = " ]] ]]><![CDATA[ > "; ]]>
 			expected: `<script><![CDATA[var s = "]]]]><![CDATA[>";]]></script>`,
 		},
 		{
@@ -88,18 +88,18 @@ func TestSanitizeSoup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Ejecutamos la función
+			// Run the function
 			reader := strings.NewReader(tt.input)
 			outputReader := sanitizeSoup(reader)
 
-			// Leemos el resultado completo
+			// Read the complete result
 			outputBytes, err := io.ReadAll(outputReader)
 			if err != nil {
 				t.Fatalf("Failed to read output: %v", err)
 			}
 			got := string(outputBytes)
 
-			// Verificamos
+			// Verify
 			if got != tt.expected {
 				t.Errorf("Sanitization mismatch.\n--- Input ---\n%s\n--- Expected ---\n%s\n--- Got ---\n%s",
 					tt.input, tt.expected, got)

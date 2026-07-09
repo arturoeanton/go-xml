@@ -17,7 +17,7 @@ import (
 // 1. CHARSET & SANITIZATION
 // ============================================================================
 
-// windows1252Table mapea cada byte (0-255) a su runa UTF-8 correspondiente.
+// windows1252Table maps each byte (0-255) to its corresponding UTF-8 rune.
 var windows1252Table = [256]rune{
 	0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
 	0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
@@ -38,7 +38,7 @@ var windows1252Table = [256]rune{
 	0x00F0, 0x00F1, 0x00F2, 0x00F3, 0x00F4, 0x00F5, 0x00F6, 0x00F7, 0x00F8, 0x00F9, 0x00FA, 0x00FB, 0x00FC, 0x00FD, 0x00FE, 0x00FF,
 }
 
-// latin1Reader implementa io.Reader para decodificar ISO-8859-1 en vuelo.
+// latin1Reader implements io.Reader to decode ISO-8859-1 on the fly.
 type latin1Reader struct {
 	r io.Reader
 }
@@ -63,7 +63,7 @@ func (l *latin1Reader) Read(p []byte) (n int, err error) {
 	return bytesWritten, errRead
 }
 
-// charsetReader inyecta soporte para ISO-8859-1 en el decodificador XML.
+// charsetReader injects ISO-8859-1 support into the XML decoder.
 func charsetReader(charset string, input io.Reader) (io.Reader, error) {
 	charset = strings.ToLower(charset)
 	switch charset {
@@ -76,13 +76,13 @@ func charsetReader(charset string, input io.Reader) (io.Reader, error) {
 	}
 }
 
-// sanitizeSoup protege tags peligrosos en modo "Soup" (HTML sucio).
+// sanitizeSoup protects dangerous tags in "Soup" mode (dirty HTML).
 func sanitizeSoup(r io.Reader) io.Reader {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return r
 	}
-	// Tags que contienen "raw text" en HTML y rompen parsers XML estrictos
+	// Tags that contain "raw text" in HTML and break strict XML parsers
 	rawTags := []string{"script", "style", "code", "pre", "textarea"}
 
 	for _, tag := range rawTags {
@@ -93,12 +93,12 @@ func sanitizeSoup(r io.Reader) io.Reader {
 			if len(parts) < 4 {
 				return match
 			}
-			// Envolvemos el contenido en CDATA para protegerlo
+			// Wrap the content in CDATA to protect it
 			openTag := parts[1]
 			content := parts[2]
 			closeTag := parts[3]
 
-			// Escape de CDATA anidado si existiese
+			// Escape nested CDATA if it exists
 			escapedContent := bytes.ReplaceAll(content, []byte("]]>"), []byte("]]]]><![CDATA[>"))
 
 			var buf bytes.Buffer
@@ -117,7 +117,7 @@ func sanitizeSoup(r io.Reader) io.Reader {
 // 2. TYPE COERCION (SAFE GETTERS)
 // ============================================================================
 
-// AsString fuerza la conversión a string.
+// AsString forces conversion to string.
 func AsString(v any) string {
 	if v == nil {
 		return ""
@@ -139,7 +139,7 @@ func AsString(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// AsInt fuerza la conversión a int (0 si falla).
+// AsInt forces conversion to int (0 on failure).
 func AsInt(v any) int {
 	switch t := v.(type) {
 	case int:
@@ -158,7 +158,7 @@ func AsInt(v any) int {
 	return 0
 }
 
-// AsFloat fuerza la conversión a float64.
+// AsFloat forces conversion to float64.
 func AsFloat(v any) float64 {
 	switch t := v.(type) {
 	case float64:
@@ -172,13 +172,13 @@ func AsFloat(v any) float64 {
 	return 0.0
 }
 
-// AsBool fuerza la conversión a bool.
+// AsBool forces conversion to bool.
 func AsBool(v any) bool {
 	s := strings.ToLower(fmt.Sprintf("%v", v))
 	return s == "true" || s == "1" || s == "yes" || s == "on" || s == "ok"
 }
 
-// AsSlice garantiza retornar un []any.
+// AsSlice guarantees returning a []any.
 func AsSlice(v any) []any {
 	if v == nil {
 		return []any{}
@@ -189,7 +189,7 @@ func AsSlice(v any) []any {
 	return []any{v}
 }
 
-// AsTime intenta parsear una fecha con varios layouts comunes.
+// AsTime attempts to parse a date with several common layouts.
 func AsTime(v any, layouts ...string) (time.Time, error) {
 	s := AsString(v)
 	if len(layouts) == 0 {

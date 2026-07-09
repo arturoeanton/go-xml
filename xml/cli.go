@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// Helper para obtener el Reader (File o Stdin)
+// Helper to obtain the Reader (File or Stdin)
 func getInputReader(args []string) (io.Reader, error) {
-	// Si hay argumentos y el primero no es un flag, asumimos que es el archivo
+	// If there are arguments and the first one is not a flag, we assume it's the file
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		f, err := os.Open(args[0])
 		if err != nil {
@@ -20,7 +20,7 @@ func getInputReader(args []string) (io.Reader, error) {
 		return f, nil
 	}
 
-	// Si no, verificar Stdin
+	// Otherwise, check Stdin
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) == 0 {
 		return os.Stdin, nil
@@ -36,13 +36,13 @@ func CliFormat(args []string) {
 		die(err)
 	}
 
-	// Leemos a OrderedMap
-	m, err := MapXML(r, EnableLegacyCharsets()) // Robustez por defecto
+	// Read into an OrderedMap
+	m, err := MapXML(r, EnableLegacyCharsets()) // Robustness by default
 	if err != nil {
 		die(err)
 	}
 
-	// Escribimos con PrettyPrint
+	// Write with PrettyPrint
 	enc := NewEncoder(os.Stdout, WithPrettyPrint())
 	if err := enc.Encode(m); err != nil {
 		die(err)
@@ -56,7 +56,7 @@ func CliToJson(args []string) {
 	if err != nil {
 		die(err)
 	}
-	// Usamos ToJSON helper
+	// Use the ToJSON helper
 	b, err := ToJSON(r)
 	if err != nil {
 		die(err)
@@ -65,10 +65,10 @@ func CliToJson(args []string) {
 }
 
 // 3. CSV Converter (Flatten Lists)
-// Uso: r2xml csv data.xml --path="orders/order"
+// Usage: r2xml csv data.xml --path="orders/order"
 func CliToCsv(args []string) {
 	var targetPath string
-	// Parse args manual simple
+	// Simple manual args parsing
 	cleanArgs := []string{}
 	for _, a := range args {
 		if strings.HasPrefix(a, "--path=") {
@@ -87,21 +87,21 @@ func CliToCsv(args []string) {
 		die(err)
 	}
 
-	// Forzamos array en el target path para asegurar lista
+	// Force an array at the target path to guarantee a list
 	nodeName := getLastSegment(targetPath)
 	m, err := MapXML(r, ForceArray(nodeName))
 	if err != nil {
 		die(err)
 	}
 
-	// Extraer la lista
+	// Extract the list
 	list := m.List(targetPath)
 	if len(list) == 0 {
 		fmt.Fprintln(os.Stderr, "No rows found at path:", targetPath)
 		return
 	}
 
-	// Convertir
+	// Convert
 	if err := ToCSV(os.Stdout, list); err != nil {
 		die(err)
 	}
@@ -113,7 +113,7 @@ func CliQuery(args []string) {
 		die(fmt.Errorf("xpath argument required"))
 	}
 
-	// El query suele ser el último arg o el segundo si hay archivo
+	// The query is usually the last arg, or the second one if there is a file
 	xpath := args[len(args)-1]
 	fileArgs := args[:len(args)-1]
 
@@ -132,23 +132,22 @@ func CliQuery(args []string) {
 		die(err)
 	}
 
-	// Salida JSON bonita de los resultados
+	// Pretty JSON output of the results
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	enc.Encode(res)
 }
 
-// 5. SOAP Client (Desde Config JSON)
-// 5. SOAP Client (Desde Config JSON)
-// Permite probar servicios SOAP sin compilar Go.
-// Input: Un JSON con {endpoint, action, payload, auth, cert_file, key_file...}
+// 5. SOAP Client (From JSON Config)
+// Allows testing SOAP services without compiling Go.
+// Input: A JSON with {endpoint, action, payload, auth, cert_file, key_file...}
 func CliSoap(args []string) {
 	r, err := getInputReader(args)
 	if err != nil {
 		die(err)
 	}
 
-	// 1. Leer Config JSON
+	// 1. Read JSON Config
 	var cfg struct {
 		Endpoint  string         `json:"endpoint"`
 		Namespace string         `json:"namespace"`
@@ -160,11 +159,11 @@ func CliSoap(args []string) {
 			Pass string `json:"pass"`
 		} `json:"auth"`
 
-		// === NUEVO: Soporte mTLS ===
-		CertFile string `json:"cert_file"` // Ruta al .crt
-		KeyFile  string `json:"key_file"`  // Ruta al .key
-		Insecure bool   `json:"insecure"`  // Ignorar validación servidor
-		Output   string `json:"output"`    // "json" (default) o "xml"
+		// === NEW: mTLS Support ===
+		CertFile string `json:"cert_file"` // Path to the .crt
+		KeyFile  string `json:"key_file"`  // Path to the .key
+		Insecure bool   `json:"insecure"`  // Skip server validation
+		Output   string `json:"output"`    // "json" (default) or "xml"
 	}
 
 	dec := json.NewDecoder(r)
@@ -172,7 +171,7 @@ func CliSoap(args []string) {
 		die(fmt.Errorf("invalid json config: %w", err))
 	}
 
-	// 2. Configurar Cliente
+	// 2. Configure Client
 	opts := []ClientOption{}
 
 	// Auth Headers
@@ -182,7 +181,7 @@ func CliSoap(args []string) {
 		opts = append(opts, WithBasicAuth(cfg.Auth.User, cfg.Auth.Pass))
 	}
 
-	// mTLS (Certificados Cliente)
+	// mTLS (Client Certificates)
 	if cfg.CertFile != "" && cfg.KeyFile != "" {
 		opts = append(opts, WithClientCertificate(cfg.CertFile, cfg.KeyFile))
 	}
@@ -194,15 +193,15 @@ func CliSoap(args []string) {
 
 	client := NewSoapClient(cfg.Endpoint, cfg.Namespace, opts...)
 
-	// 3. Ejecutar
+	// 3. Execute
 	resp, err := client.Call(cfg.Action, cfg.Payload)
 	if err != nil {
 		die(err)
 	}
 
-	// === LÓGICA DE SALIDA ===
+	// === OUTPUT LOGIC ===
 	if cfg.Output == "xml" {
-		// Usamos el Marshal del encoder para sacar XML puro
+		// Use the encoder's Marshal to output plain XML
 		s, err := Marshal(resp)
 		if err != nil {
 			die(err)
@@ -215,7 +214,7 @@ func CliSoap(args []string) {
 }
 
 // 7. WSDL Discovery
-// Uso: r2xml wsdl service.wsdl
+// Usage: r2xml wsdl service.wsdl
 func CliWSDL(args []string) {
 	r, err := getInputReader(args)
 	if err != nil {
@@ -270,13 +269,13 @@ func getLastSegment(path string) string {
 }
 
 // 6. SOAP Client Quick (Flags)
-// Uso: r2xml call --url=http://... --action=GetData --data="User/Id=123" --data="User/Active=true"
+// Usage: r2xml call --url=http://... --action=GetData --data="User/Id=123" --data="User/Active=true"
 func CliSoapQuick(args []string) {
-	// Definimos un FlagSet independiente para no ensuciar el global
+	// Define an independent FlagSet so we don't pollute the global one
 	fs := flag.NewFlagSet("call", flag.ExitOnError)
 
 	var url, action, ns, user, pass, authType, wsdlPath string
-	var dataFlags arrayFlags // Tipo custom para soportar múltiples --data
+	var dataFlags arrayFlags // Custom type to support multiple --data
 
 	fs.StringVar(&url, "url", "", "SOAP Endpoint URL")
 	fs.StringVar(&action, "action", "", "SOAP Action (Method Name)")
@@ -286,17 +285,17 @@ func CliSoapQuick(args []string) {
 	fs.StringVar(&pass, "pass", "", "Password")
 	fs.StringVar(&wsdlPath, "wsdl", "", "WSDL file: validates --action and supplies url/ns/soapAction (overrides --url/--ns)")
 
-	// Bind del flag repetible
+	// Bind the repeatable flag
 	fs.Var(&dataFlags, "data", "Payload key=value (Ex: --data 'User/Id=100'). Can be repeated.")
 
 	fs.Parse(args)
 
-	// Validaciones básicas
+	// Basic validations
 	if action == "" || (url == "" && wsdlPath == "") {
 		die(fmt.Errorf("required flags: --action and (--url or --wsdl)"))
 	}
 
-	// Con --wsdl: validar la acción y sacar url/ns/soapAction del propio WSDL.
+	// With --wsdl: validate the action and take url/ns/soapAction from the WSDL itself.
 	var wsdl *WSDL
 	if wsdlPath != "" {
 		f, err := os.Open(wsdlPath)
@@ -310,7 +309,7 @@ func CliSoapQuick(args []string) {
 		}
 	}
 
-	// 1. Construir Cliente
+	// 1. Build Client
 	opts := []ClientOption{}
 	if authType == "wsse" {
 		opts = append(opts, WithWSSecurity(user, pass))
@@ -326,19 +325,19 @@ func CliSoapQuick(args []string) {
 			die(err)
 		}
 		if url != "" {
-			// --url junto con --wsdl: mismo contrato (soapAction/namespace/versión),
-			// pero llamar a otro endpoint (ej. probar contra staging con el WSDL de prod).
+			// --url together with --wsdl: same contract (soapAction/namespace/version),
+			// but call a different endpoint (e.g. test against staging with the prod WSDL).
 			client.EndpointURL = url
 		}
 	} else {
 		client = NewSoapClient(url, ns, opts...)
 	}
 
-	// 2. Construir Payload usando OrderedMap.Set (¡La Magia!)
+	// 2. Build Payload using OrderedMap.Set (The Magic!)
 	payload := NewMap()
 	for _, d := range dataFlags {
-		// Separar Key=Value
-		// Usamos SplitN por si el valor contiene '=' (ej: token=abc=def)
+		// Split Key=Value
+		// We use SplitN in case the value contains '=' (e.g.: token=abc=def)
 		parts := strings.SplitN(d, "=", 2)
 		if len(parts) != 2 {
 			fmt.Fprintf(os.Stderr, "Warning: ignoring invalid data format '%s'. Use key=value\n", d)
@@ -347,7 +346,7 @@ func CliSoapQuick(args []string) {
 		payload.Set(parts[0], inferCLIValue(parts[1]))
 	}
 
-	// 3. Ejecutar
+	// 3. Execute
 	var resp *OrderedMap
 	var err error
 	if wsdl != nil {
@@ -359,11 +358,11 @@ func CliSoapQuick(args []string) {
 		die(err)
 	}
 
-	// 4. Salida
+	// 4. Output
 	fmt.Println(resp.Dump())
 }
 
-// Helper para flags repetibles (--data "a=1" --data "b=2")
+// Helper for repeatable flags (--data "a=1" --data "b=2")
 type arrayFlags []string
 
 func (i *arrayFlags) String() string {
@@ -375,7 +374,7 @@ func (i *arrayFlags) Set(value string) error {
 	return nil
 }
 
-// inferCLIValue intenta convertir strings de consola a tipos Go útiles
+// inferCLIValue tries to convert console strings into useful Go types
 func inferCLIValue(val string) any {
 	if val == "true" {
 		return true
@@ -383,8 +382,8 @@ func inferCLIValue(val string) any {
 	if val == "false" {
 		return false
 	}
-	// Intenta int
-	// (Ojo: strconv requiere importarlo si no está ya)
-	// return val // Por ahora devolvemos string para máxima compatibilidad
+	// Try int
+	// (Note: strconv needs to be imported if it isn't already)
+	// return val // For now we return string for maximum compatibility
 	return val
 }
